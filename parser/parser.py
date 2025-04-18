@@ -240,7 +240,7 @@ class Parser:
         syms = [tokenType_to_terminal(t["prop"]) for t in toks] + ['EOF']
         # input(syms)
         ids  = [self.get_id(s) for s in syms]
-        input(ids)
+        # input(ids)
 
         stack = [{"state":0, "tree":{"root": 'EOF'}}]
         idx = 0
