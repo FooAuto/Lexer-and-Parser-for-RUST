@@ -98,3 +98,12 @@ tokenSymbols = {
     "..": tokenType.DOTDOT,
     "!": tokenType.EXCLAMATION,
 }
+
+def tokenType_to_terminal(tokenType):
+    for key, value in tokenKeywords.items():
+        if value == tokenType:
+            return value.name
+    for key, value in tokenSymbols.items():
+        if value == tokenType:
+            return value.name
+    return tokenType.name
