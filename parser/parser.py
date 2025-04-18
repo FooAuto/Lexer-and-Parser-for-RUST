@@ -4,53 +4,65 @@ from lexer.token import tokenType_to_terminal
 
 # Action types
 ACTION_ACC = 0
-ACTION_S   = 1
-ACTION_R   = 2
+ACTION_S = 1
+ACTION_R = 2
 ActionType = ["acc", "s", "r"]
+
 
 class Production:
     def __init__(self):
-        self.cnt      = 0
-        self.from_id  = 0
-        self.to_ids   = []
+        self.cnt = 0
+        self.from_id = 0
+        self.to_ids = []
 
     def __lt__(self, other):
         return self.cnt < other.cnt
 
+
 class Item:
     def __init__(self, production_id, dot_pos, terminal_id):
         self.production_id = production_id
-        self.dot_pos       = dot_pos
-        self.terminal_id   = terminal_id
+        self.dot_pos = dot_pos
+        self.terminal_id = terminal_id
 
     def __eq__(self, other):
-        return (self.production_id, self.dot_pos, self.terminal_id) == \
-               (other.production_id, other.dot_pos, other.terminal_id)
+        return (self.production_id, self.dot_pos, self.terminal_id) == (
+            other.production_id,
+            other.dot_pos,
+            other.terminal_id,
+        )
 
     def __lt__(self, other):
-        return (self.production_id, self.dot_pos, self.terminal_id) < \
-               (other.production_id, other.dot_pos, other.terminal_id)
+        return (self.production_id, self.dot_pos, self.terminal_id) < (
+            other.production_id,
+            other.dot_pos,
+            other.terminal_id,
+        )
+
 
 class Closure:
     def __init__(self):
-        self.cnt   = 0
+        self.cnt = 0
         self.items = []
 
     def __eq__(self, other):
         return sorted(self.items) == sorted(other.items)
 
+
 class Parser:
     def __init__(self, prod_file="configs/production.cfg"):
-        self.terminal_symbols = [t.name for t in sorted(tokenType, key=lambda x: x.value)]
+        self.terminal_symbols = [
+            t.name for t in sorted(tokenType, key=lambda x: x.value)
+        ]
 
         self.non_terminal_symbols = ["epsilon"]
 
-        self.productions   = []
-        self.firsts        = []
-        self.closures      = []
-        self.gos           = []
-        self.goto_table    = []
-        self.action_table  = []
+        self.productions = []
+        self.firsts = []
+        self.closures = []
+        self.gos = []
+        self.goto_table = []
+        self.action_table = []
 
         self.read_productions(prod_file)
         self.find_firsts()
@@ -70,15 +82,17 @@ class Parser:
                 for line in fin:
                     m = re.match(r"\s*([^->]+)\s*->\s*(.*)", line)
                     if not m:
-                        continue # ingore comments
+                        continue  # ingore comments
                     left = m.group(1).strip()
                     rights = [r.strip() for r in m.group(2).split("|")]
                     if left not in self.non_terminal_symbols:
                         self.non_terminal_symbols.append(left)
-                    from_id = len(self.terminal_symbols) + self.non_terminal_symbols.index(left)
+                    from_id = len(
+                        self.terminal_symbols
+                    ) + self.non_terminal_symbols.index(left)
                     for alt in rights:
                         p = Production()
-                        p.cnt     = len(self.productions)
+                        p.cnt = len(self.productions)
                         p.from_id = from_id
                         # handle epsilon
                         # if right side is epsilon, no adding to non terminal
@@ -89,7 +103,9 @@ class Parser:
                                 else:
                                     if tok not in self.non_terminal_symbols:
                                         self.non_terminal_symbols.append(tok)
-                                    tid = len(self.terminal_symbols) + self.non_terminal_symbols.index(tok)
+                                    tid = len(
+                                        self.terminal_symbols
+                                    ) + self.non_terminal_symbols.index(tok)
                                 p.to_ids.append(tid)
                         self.productions.append(p)
         except FileNotFoundError:
@@ -124,7 +140,7 @@ class Parser:
                     self.firsts[A].add(T)
                     changed = True
 
-    def find_firsts_alpha(self, alpha, firsts:set):
+    def find_firsts_alpha(self, alpha, firsts: set):
         T = len(self.terminal_symbols)
         firsts.clear()
         for i, X in enumerate(alpha):
@@ -136,16 +152,16 @@ class Parser:
         # 若所有都可空，加入 ε
         firsts.add(T)
 
-    def find_closures(self, closure:Closure):
+    def find_closures(self, closure: Closure):
         T = len(self.terminal_symbols)
         i = 0
         while i < len(closure.items):
-            it   = closure.items[i]
+            it = closure.items[i]
             prod = self.productions[it.production_id]
             if it.dot_pos < len(prod.to_ids):
                 B = prod.to_ids[it.dot_pos]
                 if B >= T:
-                    beta = prod.to_ids[it.dot_pos+1:]
+                    beta = prod.to_ids[it.dot_pos + 1 :]
                     la_set = set()
                     self.find_firsts_alpha(beta + [it.terminal_id], la_set)
                     for j, p in enumerate(self.productions):
@@ -161,7 +177,9 @@ class Parser:
         self.non_terminal_symbols.append("S'")
         aug = Production()
         aug.cnt = len(self.productions)  # new production
-        aug.from_id = len(self.terminal_symbols) + self.non_terminal_symbols.index("S'")  # S' index
+        aug.from_id = len(self.terminal_symbols) + self.non_terminal_symbols.index(
+            "S'"
+        )  # S' index
         start_sym = self.productions[0].from_id  # original start symbol
         aug.to_ids = [start_sym]
         self.productions.append(aug)
@@ -173,7 +191,7 @@ class Parser:
         start.items.append(Item(self.aug_prod_id, 0, eof_id))
         self.find_closures(start)
         self.closures = [start]
-        self.gos      = [{}]
+        self.gos = [{}]
 
         idx = 0
         while idx < len(self.closures):
@@ -184,7 +202,7 @@ class Parser:
                 if it.dot_pos < len(prod.to_ids):
                     X = prod.to_ids[it.dot_pos]
                     trans.setdefault(X, Closure()).items.append(
-                        Item(it.production_id, it.dot_pos+1, it.terminal_id)
+                        Item(it.production_id, it.dot_pos + 1, it.terminal_id)
                     )
             for X, Cx in trans.items():
                 self.find_closures(Cx)
@@ -227,7 +245,10 @@ class Parser:
                             self.action_table[i][it.terminal_id] = (ACTION_ACC, 0)
                     else:
                         # normal reduce
-                        self.action_table[i][it.terminal_id] = (ACTION_R, it.production_id)
+                        self.action_table[i][it.terminal_id] = (
+                            ACTION_R,
+                            it.production_id,
+                        )
                 else:
                     a = prod.to_ids[it.dot_pos]
                     # shift
@@ -236,24 +257,29 @@ class Parser:
 
     def parse(self, lex):
         comments = {tokenType.S_COMMENT, tokenType.LM_COMMENT, tokenType.RM_COMMENT}
-        toks = [t for t in lex if t["prop"] not in comments and t["prop"] != tokenType.EOF]
-        syms = [tokenType_to_terminal(t["prop"]) for t in toks] + ['EOF']
+        toks = [
+            t for t in lex if t["prop"] not in comments and t["prop"] != tokenType.EOF
+        ]
+        syms = [tokenType_to_terminal(t["prop"]) for t in toks] + ["EOF"]
         # input(syms)
-        ids  = [self.get_id(s) for s in syms]
+        ids = [self.get_id(s) for s in syms]
         # input(ids)
 
-        stack = [{"state":0, "tree":{"root": 'EOF'}}]
+        stack = [{"state": 0, "tree": {"root": "EOF"}}]
         idx = 0
         while True:
             st = stack[-1]["state"]
-            a  = ids[idx]
+            a = ids[idx]
             # input(a)
             if a not in self.action_table[st]:
                 cur = toks[idx]
-                return {"error": f"unexpected token {cur['prop']} ('{cur['content']}')", "loc":cur["loc"]}
+                return {
+                    "error": f"unexpected token {cur['prop']} ('{cur['content']}')",
+                    "loc": cur["loc"],
+                }
             act, val = self.action_table[st][a]
             if act == ACTION_S:  # shift
-                stack.append({"state":val, "tree":{"root":syms[idx]}})
+                stack.append({"state": val, "tree": {"root": syms[idx]}})
                 idx += 1
             elif act == ACTION_R:  # reduce
                 p = self.productions[val]
@@ -261,10 +287,18 @@ class Parser:
                 for _ in p.to_ids:
                     children.insert(0, stack.pop()["tree"])
                 st2 = stack[-1]["state"]
-                nt  = p.from_id
-                ns  = self.goto_table[st2][nt]
-                stack.append({"state":ns,
-                              "tree":{"root": self.non_terminal_symbols[nt-len(self.terminal_symbols)],
-                                      "children": children}})
+                nt = p.from_id
+                ns = self.goto_table[st2][nt]
+                stack.append(
+                    {
+                        "state": ns,
+                        "tree": {
+                            "root": self.non_terminal_symbols[
+                                nt - len(self.terminal_symbols)
+                            ],
+                            "children": children,
+                        },
+                    }
+                )
             else:  # accept
                 return stack[-1]["tree"]

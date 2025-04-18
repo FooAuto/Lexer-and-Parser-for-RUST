@@ -3,9 +3,9 @@ from parser.parser import Parser
 from utils.utils import *
 import json
 from pprint import pprint
- 
+
 if __name__ == "__main__":
-    with open("data/basic.rs", "r", encoding="utf-8") as f:
+    with open("data/test1.rs", "r", encoding="utf-8") as f:
         lines = f.readlines()
 
     lexer = Lexer()
@@ -30,7 +30,7 @@ if __name__ == "__main__":
         else:
             print("\n===== 语法树 (ASCII) =====")
             print_tree(result)
-            visualize_tree_matplotlib(result)
+            # visualize_tree_matplotlib(result)
+            visualize_tree_pyqt(result)
     else:
         print("\nLexing failed: unknown tokens found.")
-        
