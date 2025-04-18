@@ -10,8 +10,13 @@ if __name__ == "__main__":
     tokens, success = lexer.getLex(lines)
 
     with open("outputs/result.json", "w", encoding="utf-8") as out_file:
-        json.dump([serialize_token(token) for token in tokens], out_file, indent=2, ensure_ascii=False)
-    print('Tokens written to output/tokens.json')
+        json.dump(
+            [serialize_token(token) for token in tokens],
+            out_file,
+            indent=2,
+            ensure_ascii=False,
+        )
+    print("Tokens written to output/tokens.json")
 
     if success:
         print("\nLexing completed successfully.")

@@ -3,31 +3,32 @@ from enum import Enum
 
 class tokenType(Enum):
     IDENTIFIER = 1  # 标识符
-    MACRO_IDENTIFIER = 2  # 宏标识符（以!结尾的标识符）
-    INTEGER_CONSTANT = 3  # 整型常量
-    FLOATING_POINT_CONSTANT = 4  # 浮点型常量
-    CHAR_CONSTANT = 5  # 字符常量
-    STRING_CONSTANT = 6  # 字符串常量
-    S_COMMENT = 7  # 单行注释
-    LM_COMMENT = 8  # 多行注释开始
-    RM_COMMENT = 9  # 多行注释结束
-    EOF = 10  # 文件结束标记
-    UNKNOWN = 11  # 未知标记
+    EXCLAMATION = 2  # 感叹号（!），用于宏标识符
+    MACRO_IDENTIFIER = 3  # 宏标识符（以!结尾的标识符）
+    INTEGER_CONSTANT = 4  # 整型常量
+    FLOATING_POINT_CONSTANT = 5  # 浮点型常量
+    CHAR_CONSTANT = 6  # 字符常量
+    STRING_CONSTANT = 7  # 字符串常量
+    S_COMMENT = 8  # 单行注释
+    LM_COMMENT = 9  # 多行注释开始
+    RM_COMMENT = 10  # 多行注释结束
+    EOF = 11  # 文件结束标记
+    UNKNOWN = 12  # 未知标记
 
     # 关键字
-    I32 = 100  # i32
-    LET = 101  # let
-    IF = 102  # if
-    ELSE = 103  # else
-    WHILE = 104  # while
-    RETURN = 105  # return
-    MUT = 106  # mut
-    FN = 107  # fn
-    FOR = 108  # for
-    IN = 109  # in
-    LOOP = 110  # loop
-    BREAK = 111  # break
-    CONTINUE = 112  # continue
+    I32 = 101  # i32
+    LET = 102  # let
+    IF = 103  # if
+    ELSE = 104  # else
+    WHILE = 105  # while
+    RETURN = 106  # return
+    MUT = 107  # mut
+    FN = 108  # fn
+    FOR = 109  # for
+    IN = 110  # in
+    LOOP = 111  # loop
+    BREAK = 112  # break
+    CONTINUE = 113  # continue
 
     # 各类符号
     ASSIGN = 201  # =
@@ -56,19 +57,19 @@ class tokenType(Enum):
 
 
 tokenKeywords = {
+    "i32": tokenType.I32,
     "let": tokenType.LET,
-    "fn": tokenType.FN,
-    "return": tokenType.RETURN,
-    "mut": tokenType.MUT,
     "if": tokenType.IF,
     "else": tokenType.ELSE,
     "while": tokenType.WHILE,
+    "return": tokenType.RETURN,
+    "mut": tokenType.MUT,
+    "fn": tokenType.FN,
     "for": tokenType.FOR,
     "in": tokenType.IN,
     "loop": tokenType.LOOP,
     "break": tokenType.BREAK,
     "continue": tokenType.CONTINUE,
-    "i32": tokenType.I32,
 }
 
 tokenSymbols = {
@@ -78,22 +79,22 @@ tokenSymbols = {
     "*": tokenType.MULT,
     "/": tokenType.DIV,
     "==": tokenType.EQ,
-    "!=": tokenType.NEQ,
     ">": tokenType.GT,
-    "<": tokenType.LT,
     ">=": tokenType.GE,
+    "<": tokenType.LT,
     "<=": tokenType.LE,
+    "!=": tokenType.NEQ,
     "(": tokenType.LPAREN,
     ")": tokenType.RPAREN,
     "{": tokenType.LBRACE,
     "}": tokenType.RBRACE,
     "[": tokenType.LBRACK,
     "]": tokenType.RBRACK,
-    ":": tokenType.COLON,
     ";": tokenType.SEMICOLON,
+    ":": tokenType.COLON,
     ",": tokenType.COMMA,
     "->": tokenType.ARROW,
-    "..": tokenType.DOTDOT,
     ".": tokenType.DOT,
+    "..": tokenType.DOTDOT,
     "!": tokenType.EXCLAMATION,
 }
