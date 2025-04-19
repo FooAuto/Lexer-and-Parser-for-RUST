@@ -2,10 +2,9 @@ from lexer.lexer import Lexer
 from parser.parser import Parser
 from utils.utils import *
 import json
-from pprint import pprint
 
 if __name__ == "__main__":
-    with open("data/test6_2_2.rs", "r", encoding="utf-8") as f:
+    with open("data/test9_2.rs", "r", encoding="utf-8") as f:
         lines = f.readlines()
 
     lexer = Lexer()
