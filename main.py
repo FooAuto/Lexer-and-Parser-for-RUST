@@ -3,7 +3,7 @@ from parser.parser import Parser
 from utils.utils import *
 import json
 from pprint import pprint
-
+import os
 if __name__ == "__main__":
     with open("data/test6_2_2.rs", "r", encoding="utf-8") as f:
         lines = f.readlines()
@@ -11,7 +11,7 @@ if __name__ == "__main__":
     lexer = Lexer()
     parser = Parser()
     tokens, success = lexer.getLex(lines)
-
+    os.makedirs("outputs", exist_ok=True)
     with open("outputs/result.json", "w", encoding="utf-8") as out_file:
         json.dump(
             [serialize_token(token) for token in tokens],
