@@ -5,7 +5,7 @@ import json
 from pprint import pprint
 
 if __name__ == "__main__":
-    with open("data/test8_2.rs", "r", encoding="utf-8") as f:
+    with open("data/test6_2_2.rs", "r", encoding="utf-8") as f:
         lines = f.readlines()
 
     lexer = Lexer()
