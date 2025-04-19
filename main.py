@@ -5,21 +5,21 @@ import json
 from pprint import pprint
 
 if __name__ == "__main__":
-    with open("data/test1.rs", "r", encoding="utf-8") as f:
+    with open("data/test8_2.rs", "r", encoding="utf-8") as f:
         lines = f.readlines()
 
     lexer = Lexer()
     parser = Parser()
     tokens, success = lexer.getLex(lines)
 
-    # with open("outputs/result.json", "w", encoding="utf-8") as out_file:
-    #     json.dump(
-    #         [serialize_token(token) for token in tokens],
-    #         out_file,
-    #         indent=2,
-    #         ensure_ascii=False,
-    #     )
-    # print("Tokens written to output/tokens.json")
+    with open("outputs/result.json", "w", encoding="utf-8") as out_file:
+        json.dump(
+            [serialize_token(token) for token in tokens],
+            out_file,
+            indent=2,
+            ensure_ascii=False,
+        )
+    print("Tokens written to output/tokens.json")
 
     if success:
         print("\nLexing completed successfully.")

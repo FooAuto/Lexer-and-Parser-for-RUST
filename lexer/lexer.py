@@ -30,7 +30,7 @@ class Lexer:
             (r"[A-Za-z_][A-Za-z0-9_]*", tokenType.IDENTIFIER),
             (r"\d+\.\d+([eE][+-]?\d+)?", tokenType.FLOATING_POINT_CONSTANT),
             (r"\d+", tokenType.INTEGER_CONSTANT),
-            (r"==|!=|>=|<=|->|\.\.|[+\-*/=><!]", None),
+            (r"==|!=|>=|<=|->|\.\.|[+\-*/=><!&]", None),
             (r"[(){}\[\];:,.]", None),
             (r"#", tokenType.EOF),
         ]
@@ -47,11 +47,11 @@ class Lexer:
             line = lines[line_idx]
             pos = start_pos if row == start_row else 0
             while pos < len(line):
-                if line[pos : pos + 2] == "/*":
+                if line[pos: pos + 2] == "/*":
                     depth += 1
                     comment_text += "/*"
                     pos += 2
-                elif line[pos : pos + 2] == "*/":
+                elif line[pos: pos + 2] == "*/":
                     depth -= 1
                     comment_text += "*/"
                     pos += 2
@@ -72,7 +72,7 @@ class Lexer:
             match_found = False
             for pattern, initial_tag in self.token_exprs:
                 if pattern == r"/\*":
-                    if line[pos : pos + 2] == "/*":
+                    if line[pos: pos + 2] == "/*":
                         comment_text, end_row_idx, end_pos = self.handle_block_comment(
                             self.lines, row, pos + 1, self.line_idx, pos + 2
                         )

@@ -54,6 +54,7 @@ class tokenType(Enum):
     ARROW = 221  # ->
     DOT = 222  # .
     DOTDOT = 223  # ..
+    AMP = 224  # &
 
 
 tokenKeywords = {
@@ -97,7 +98,9 @@ tokenSymbols = {
     ".": tokenType.DOT,
     "..": tokenType.DOTDOT,
     "!": tokenType.EXCLAMATION,
+    "&": tokenType.AMP
 }
+
 
 def tokenType_to_terminal(tokenType):
     for key, value in tokenKeywords.items():
