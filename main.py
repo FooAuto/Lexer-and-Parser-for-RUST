@@ -3,9 +3,15 @@ from parser.parser import Parser
 from utils.utils import *
 import json
 import os
+import argparse
 
 if __name__ == "__main__":
-    with open("data/test9_2.rs", "r", encoding="utf-8") as f:
+    arg_parser = argparse.ArgumentParser(description="Rust Lexer and Parser")
+    arg_parser.add_argument("source_file", help="Path to the Rust source file to analyze")
+    args = arg_parser.parse_args()
+    source_path = args.source_file
+
+    with open(source_path, "r", encoding="utf-8") as f:
         lines = f.readlines()
 
     lexer = Lexer()
