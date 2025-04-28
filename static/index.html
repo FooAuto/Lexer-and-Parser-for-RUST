@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rust Parser Playground</title>
+
+    <!-- CodeMirror -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/codemirror.min.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/rust/rust.min.js"></script>
+
+    <!-- D3.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.2/d3.min.js"></script>
+
+    <style>
+        /* 整体左右分区 */
+        body {
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            overflow: hidden;
+            font-family: sans-serif;
+        }
+
+        /* 左侧编辑器区域 */
+        #editor-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid #ccc;
+        }
+
+        #editor-header {
+            flex: 0 0 auto;
+            padding: 6px 12px;
+            background: #f5f5f5;
+            border-bottom: 1px solid #ddd;
+            font-weight: bold;
+        }
+
+        /* 让 CodeMirror 占满容器剩余空间 */
+        .CodeMirror {
+            flex: 1;
+            height: auto;
+        }
+
+        /* 右侧可视化区域 */
+        #visual-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #visual-header {
+            flex: 0 0 auto;
+            padding: 6px 12px;
+            background: #f5f5f5;
+            border-bottom: 1px solid #ddd;
+            font-weight: bold;
+        }
+
+        /* 错误提示区 */
+        #error {
+            flex: 0 0 auto;
+            padding: 8px;
+            background: #fee;
+            color: #900;
+            font-family: monospace;
+            white-space: pre-wrap;
+            display: none;
+            border-bottom: 1px solid #ddd;
+        }
+
+        /* 语法树 SVG 区域 */
+        #tree {
+            flex: 1;
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- 左侧编辑器 -->
+    <div id="editor-container">
+        <div id="editor-header">Editor</div>
+        <textarea id="editor"></textarea>
+    </div>
+
+    <!-- 右侧可视化 / 报错 区 -->
+    <div id="visual-container">
+        <div id="visual-header">Parser Output</div>
+        <div id="error"></div>
+        <svg id="tree"></svg>
+    </div>
+
+    <script>
+        // 初始化 CodeMirror
+        const editor = CodeMirror.fromTextArea(document.getElementById('editor'), {
+            mode: 'rust',
+            lineNumbers: true,
+            theme: 'default'
+        });
+
+        // 防抖
+        function debounce(fn, delay) {
+            let timer;
+            return (...args) => {
+                clearTimeout(timer);
+                timer = setTimeout(() => fn(...args), delay);
+            };
+        }
+
+        // 向后端请求解析
+        async function parseCode() {
+            const code = editor.getValue();
+            try {
+                const res = await fetch('/api/parse', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code })
+                });
+                const data = await res.json();
+                if (data.error) {
+                    // 显示错误
+                    document.getElementById('error').textContent =
+                        `Error: ${data.error.content} (line ${data.error.loc.row}, col ${data.error.loc.col})`;
+                    document.getElementById('error').style.display = 'block';
+                    d3.select('#tree').selectAll('*').remove();
+                } else {
+                    // 渲染语法树
+                    document.getElementById('error').style.display = 'none';
+                    renderTree(data.tree);
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        const debouncedParse = debounce(parseCode, 500);
+        editor.on('change', debouncedParse);
+
+        // D3 渲染语法树
+        function renderTree(treeData) {
+            const svg = d3.select('#tree');
+            svg.selectAll('*').remove();
+            const width = +svg.node().clientWidth;
+            const height = +svg.node().clientHeight;
+            const g = svg.append('g').attr('transform', 'translate(40,40)');
+
+            const root = d3.hierarchy(treeData, d => d.children);
+            const treeLayout = d3.tree().size([height - 80, width - 80]);
+            treeLayout(root);
+
+            // 边
+            g.selectAll('.link')
+                .data(root.links())
+                .join('path')
+                .attr('class', 'link')
+                .attr('fill', 'none')
+                .attr('stroke', '#555')
+                .attr('stroke-width', 1.5)
+                .attr('d', d3.linkHorizontal()
+                    .x(d => d.y)
+                    .y(d => d.x)
+                );
+
+            // 节点
+            const node = g.selectAll('.node')
+                .data(root.descendants())
+                .join('g')
+                .attr('class', 'node')
+                .attr('transform', d => `translate(${d.y},${d.x})`)
+                .on('mouseover', (e) => {
+                    d3.select(e.currentTarget).select('circle').attr('fill', '#f00');
+                })
+                .on('mouseout', (e) => {
+                    d3.select(e.currentTarget).select('circle').attr('fill', '#999');
+                });
+
+            node.append('circle')
+                .attr('r', 5)
+                .attr('fill', '#999');
+
+            node.append('text')
+                .attr('dy', 3)
+                .attr('x', d => d.children ? -8 : 8)
+                .style('text-anchor', d => d.children ? 'end' : 'start')
+                .text(d => d.data.root);
+
+            // 缩放 & 平移
+            svg.call(d3.zoom().on('zoom', (event) => {
+                g.attr('transform', event.transform);
+            }));
+        }
+
+        // 首次渲染
+        parseCode();
+    </script>
+</body>
+
+</html>

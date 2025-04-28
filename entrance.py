@@ -1,0 +1,67 @@
+from fastapi import FastAPI, Request
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
+from lexer.lexer import Lexer
+from parser.parser import Parser
+import uvicorn
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("Initialization Start!")
+    app.state.lexer = Lexer()
+    app.state.parser = Parser()
+    print("Initialization Done!")
+    yield
+app = FastAPI(lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.get("/")
+async def serve_frontend():
+    return FileResponse("static/index.html")
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+@app.post("/api/parse")
+async def api_parse(request: Request):
+    lexer = app.state.lexer
+    parser = app.state.parser
+    body = await request.json()
+    code = body.get("code", "")
+    lines = code.splitlines(keepends=True)
+
+    # 重置 lexer 状态
+    print(lines)
+    # return {"tree": None}
+    lexer.token_id = 1
+    tokens, success = lexer.getLex(lines)
+    if not success:
+        unk = next(t for t in tokens if t["prop"] == "UNKNOWN")
+        return {
+            "error": {
+                "content": unk["content"],
+                "loc": unk["loc"]
+            }
+        }
+
+    # 重用 parser 进行语法分析
+    result = parser.parse(tokens)
+    if isinstance(result, dict) and result.get("error"):
+        return {
+            "error": {
+                "content": result["error"],
+                "loc": result["loc"]
+            }
+        }
+
+    return {"tree": result}
+
+if __name__ == "__main__":
+    uvicorn.run("entrance:app", host="0.0.0.0", port=8000, reload=True)
