@@ -1,26 +1,69 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Rust Parser Playground</title>
 
-    <!-- CodeMirror -->
+    <!-- CodeMirror 核心 -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/codemirror.min.css" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/codemirror.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/rust/rust.min.js"></script>
+
+    <!-- VSCode Light/Dark 主题 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/theme/vscode-light.min.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/theme/vscode-dark.min.css" />
 
     <!-- D3.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.2/d3.min.js"></script>
 
     <style>
-        /* 整体左右分区 */
+        /* 浅/深色主题变量 */
+        :root[data-theme="light"] {
+            --bg-main: #ffffff;
+            --fg-main: #000000;
+            --border: #d4d4d4;
+            --header-bg: #f3f3f3;
+            --error-bg: #fdd;
+            --error-fg: #a00;
+            --editor-bg: #ffffff;
+            /* 编辑器背景-浅 */
+            --gutter-bg: #f3f3f3;
+            /* 行号背景-浅 */
+            --gutter-fg: #5a5a5a;
+            /* 行号文字-浅 */
+            --node-color: #0064c8;
+            --node-text: #000000;
+            --link-color: #555555;
+        }
+
+        :root[data-theme="dark"] {
+            --bg-main: #1e1e1e;
+            --fg-main: #d4d4d4;
+            --border: #3c3c3c;
+            --header-bg: #2d2d2d;
+            --error-bg: #5a1e1e;
+            --error-fg: #f88;
+            --editor-bg: #252526;
+            /* 编辑器背景-深 */
+            --gutter-bg: #2d2d2d;
+            /* 行号背景-深 */
+            --gutter-fg: #858585;
+            /* 行号文字-深 */
+            --node-color: #4fc3f7;
+            --node-text: #e0e0e0;
+            --link-color: #888888;
+        }
+
+        /* 全局布局 */
         body {
             margin: 0;
             height: 100vh;
             display: flex;
             overflow: hidden;
+            background: var(--bg-main);
+            color: var(--fg-main);
             font-family: sans-serif;
         }
 
@@ -29,21 +72,34 @@
             flex: 1;
             display: flex;
             flex-direction: column;
-            border-right: 1px solid #ccc;
+            border-right: 1px solid var(--border);
         }
 
         #editor-header {
-            flex: 0 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
             padding: 6px 12px;
-            background: #f5f5f5;
-            border-bottom: 1px solid #ddd;
-            font-weight: bold;
+            background: var(--header-bg);
+            border-bottom: 1px solid var(--border);
         }
 
-        /* 让 CodeMirror 占满容器剩余空间 */
         .CodeMirror {
             flex: 1;
             height: auto;
+            background: var(--editor-bg) !important;
+            /* 覆盖默认背景 */
+            /* **去掉 color: var(--editor-fg)**，让主题自行上色 */
+        }
+
+        /* 覆盖行号区样式 */
+        .CodeMirror-gutters {
+            background: var(--gutter-bg) !important;
+            border-right: 1px solid var(--border) !important;
+        }
+
+        .CodeMirror-linenumber {
+            color: var(--gutter-fg) !important;
         }
 
         /* 右侧可视化区域 */
@@ -54,149 +110,341 @@
         }
 
         #visual-header {
-            flex: 0 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
             padding: 6px 12px;
-            background: #f5f5f5;
-            border-bottom: 1px solid #ddd;
-            font-weight: bold;
+            background: var(--header-bg);
+            border-bottom: 1px solid var(--border);
         }
 
-        /* 错误提示区 */
+        #visual-header button {
+            width: 24px;
+            height: 24px;
+            line-height: 20px;
+            border: 1px solid var(--border);
+            background: var(--bg-main);
+            color: var(--fg-main);
+            cursor: pointer;
+        }
+
         #error {
             flex: 0 0 auto;
             padding: 8px;
-            background: #fee;
-            color: #900;
+            background: var(--error-bg);
+            color: var(--error-fg);
             font-family: monospace;
             white-space: pre-wrap;
             display: none;
-            border-bottom: 1px solid #ddd;
+            border-bottom: 1px solid var(--border);
         }
 
-        /* 语法树 SVG 区域 */
         #tree {
             flex: 1;
             width: 100%;
             height: 100%;
         }
+
+        /* 错误波浪线 */
+        .cm-error-underline {
+            text-decoration: red wavy underline;
+        }
+
+        /* 光标颜色 */
+        .CodeMirror-cursor {
+            border-left: 1px solid var(--fg-main) !important;
+        }
+
+        .cm-fat-cursor .CodeMirror-cursor {
+            background-color: var(--fg-main) !important;
+        }
+
+        /* 自定义上色 */
+        /* ==== VSCode Dark+ Token Colors ==== */
+
+        /* 1. 关键字 */
+        .token-LET,
+        .token-FN,
+        .token-FOR,
+        .token-IN,
+        .token-WHILE,
+        .token-IF,
+        .token-ELSE,
+        .token-RETURN,
+        .token-MUT,
+        .token-LOOP,
+        .token-BREAK,
+        .token-CONTINUE {
+            color: #569CD6;
+            /* 蓝色 */
+            font-weight: bold;
+            /* 加粗 */
+        }
+
+        /* 2. 标识符（函数名、变量名等） */
+        .token-IDENTIFIER {
+            color: #eebb2f;
+            /* 浅青色 */
+        }
+
+        /* 3. 宏标识符 */
+        .token-MACRO_IDENTIFIER {
+            color: #C586C0;
+            /* 品红 */
+        }
+
+        /* 4. 类型名 */
+        .token-I32 {
+            color: #4EC9B0;
+            /* 青绿色 */
+        }
+
+        /* 5. 数字字面量 */
+        .token-INTEGER_CONSTANT,
+        .token-FLOATING_POINT_CONSTANT {
+            color: #B5CEA8;
+            /* 浅绿色 */
+        }
+
+        /* 6. 字符 / 字符串 */
+        .token-CHAR_CONSTANT,
+        .token-STRING_CONSTANT {
+            color: #CE9178;
+            /* 橙色 */
+        }
+
+        /* 7. 注释 */
+        .token-S_COMMENT,
+        .token-LM_COMMENT,
+        .token-RM_COMMENT {
+            color: #6A9955;
+            /* 深绿 */
+            font-style: italic;
+        }
+
+        /* 8. 操作符 & 标点 */
+        .token-ASSIGN,
+        .token-PLUS,
+        .token-MINUS,
+        .token-MULT,
+        .token-DIV,
+        .token-EQ,
+        .token-GT,
+        .token-GE,
+        .token-LT,
+        .token-LE,
+        .token-NEQ,
+        .token-LPAREN,
+        .token-RPAREN,
+        .token-LBRACE,
+        .token-RBRACE,
+        .token-LBRACK,
+        .token-RBRACK,
+        .token-SEMICOLON,
+        .token-COLON,
+        .token-COMMA,
+        .token-ARROW,
+        .token-DOT,
+        .token-DOTDOT,
+        .token-AMP {
+            color: #e466f5;
+            /* 默认灰白 */
+        }
+
+        /* 9. 特殊：未知 / 错误 */
+        .token-UNKNOWN {
+            background-color: rgba(244, 67, 54, 0.2) !important;
+            color: #F44747 !important;
+            text-decoration: wavy underline;
+        }
+
+        /* 10. 文件结束符（不显示） */
+        .token-EOF {
+            color: transparent;
+        }
+
+
+        /* ……根据需要继续添加…… */
     </style>
 </head>
 
 <body>
-    <!-- 左侧编辑器 -->
+    <!-- 编辑器区 -->
     <div id="editor-container">
-        <div id="editor-header">Editor</div>
+        <div id="editor-header">
+            <span>Editor</span>
+            <button id="theme-toggle" title="切换主题">🌙</button>
+        </div>
         <textarea id="editor"></textarea>
     </div>
 
-    <!-- 右侧可视化 / 报错 区 -->
+    <!-- 语法树可视化区 -->
     <div id="visual-container">
-        <div id="visual-header">Parser Output</div>
+        <div id="visual-header">
+            <span>Parser Output</span>
+            <div>
+                <button id="zoom-in" title="放大">＋</button>
+                <button id="zoom-out" title="缩小">－</button>
+            </div>
+        </div>
         <div id="error"></div>
         <svg id="tree"></svg>
     </div>
 
     <script>
+        const root = document.documentElement;
+        const themeToggle = document.getElementById('theme-toggle');
+
+        function switchTheme() {
+            const next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+            root.setAttribute('data-theme', next);
+            themeToggle.textContent = next === 'light' ? '🌙' : '☀️';
+            editor.setOption('theme', next === 'light' ? 'vscode-light' : 'vscode-dark');
+            // 更新 D3 树的颜色
+            d3.selectAll('circle').attr('fill', 'var(--node-color)');
+            d3.selectAll('text.node-label').attr('fill', 'var(--node-text)');
+            d3.selectAll('.link').attr('stroke', 'var(--link-color)');
+        }
+        themeToggle.addEventListener('click', switchTheme);
+
         // 初始化 CodeMirror
+        const initTheme = root.getAttribute('data-theme') === 'light' ? 'vscode-light' : 'vscode-dark';
         const editor = CodeMirror.fromTextArea(document.getElementById('editor'), {
             mode: 'rust',
             lineNumbers: true,
-            theme: 'default'
+            theme: initTheme
         });
 
-        // 防抖
-        function debounce(fn, delay) {
-            let timer;
-            return (...args) => {
-                clearTimeout(timer);
-                timer = setTimeout(() => fn(...args), delay);
+        let errorMarks = [];
+        function highlightErrors(error, success) {
+            console.log(error)
+            console.log("highlightErrors")
+            // errorMarks.forEach(m => m.clear());
+            errorMarks = [];
+            if (!success) {
+                const from = { line: error.tok.loc.row - 1, ch: error.tok.loc.col - 1 };
+                const to = { line: error.tok.loc.row - 1, ch: error.tok.loc.col - 1 + error.tok.content.length };
+                errorMarks.push(editor.getDoc().markText(from, to, { className: 'cm-error-underline' }));
+
+            }
+        }
+
+        let tokenMarks = [];
+
+        // 清除所有标记
+        function clearAllMarks() {
+            tokenMarks.forEach(m => m.clear());
+            tokenMarks = [];
+        }
+
+        // 用不同 class 给每个 token 上色
+        function markTokens(tokens) {
+            // console.log("mark")
+            tokens.forEach(tok => {
+                const from = { line: tok.loc.row - 1, ch: tok.loc.col - 1 };
+                const to = { line: tok.loc.row - 1, ch: tok.loc.col - 1 + tok.content.length };
+                // console.log(tok.prop)
+                tokenMarks.push(
+                    editor.getDoc().markText(from, to, {
+                        className: 'token-' + tok.prop
+                    })
+                );
+            });
+        }
+
+        // 修改 parseCode 流程
+        async function parseCode() {
+            const res = await fetch('/api/parse', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code: editor.getValue() })
+            });
+            const data = await res.json();
+
+            clearAllMarks();   // 先清理旧标记
+
+            if (data.error) {
+                document.getElementById('error').textContent =
+                    `Error: ${data.error.content} (line ${data.error.loc.row}, col ${data.error.loc.col})`;
+                document.getElementById('error').style.display = 'block';
+                g.selectAll('*').remove();
+                markTokens(data.tokens);
+                highlightErrors(data.error, false);
+            } else {
+                document.getElementById('error').style.display = 'none';
+                g.selectAll('*').remove();
+                // 分析成功时给所有 token 上色
+                markTokens(data.tokens);
+                renderTree(data.tree);
+            }
+        }
+
+        function debounce(fn, delay = 500) {
+            let t; return (...args) => {
+                clearTimeout(t); t = setTimeout(() => fn(...args), delay);
             };
         }
 
-        // 向后端请求解析
-        async function parseCode() {
-            const code = editor.getValue();
-            try {
-                const res = await fetch('/api/parse', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ code })
-                });
-                const data = await res.json();
-                if (data.error) {
-                    // 显示错误
-                    document.getElementById('error').textContent =
-                        `Error: ${data.error.content} (line ${data.error.loc.row}, col ${data.error.loc.col})`;
-                    document.getElementById('error').style.display = 'block';
-                    d3.select('#tree').selectAll('*').remove();
-                } else {
-                    // 渲染语法树
-                    document.getElementById('error').style.display = 'none';
-                    renderTree(data.tree);
-                }
-            } catch (e) {
-                console.error(e);
-            }
-        }
+        // D3 缩放 & 布局
+        const svg = d3.select('#tree');
+        const g = svg.append('g').attr('transform', 'translate(40,40)');
+        const zoom = d3.zoom().on('zoom', e => g.attr('transform', e.transform));
+        svg.call(zoom);
+        document.getElementById('zoom-in').onclick = () => svg.transition().call(zoom.scaleBy, 1.2);
+        document.getElementById('zoom-out').onclick = () => svg.transition().call(zoom.scaleBy, 0.8);
 
         const debouncedParse = debounce(parseCode, 500);
         editor.on('change', debouncedParse);
 
-        // D3 渲染语法树
+        // 渲染语法树
         function renderTree(treeData) {
-            const svg = d3.select('#tree');
-            svg.selectAll('*').remove();
-            const width = +svg.node().clientWidth;
-            const height = +svg.node().clientHeight;
-            const g = svg.append('g').attr('transform', 'translate(40,40)');
+            g.selectAll('*').remove();
+            const w = +svg.node().clientWidth, h = +svg.node().clientHeight;
+            const rootN = d3.hierarchy(treeData, d => d.children);
+            d3.tree().nodeSize([24, 120])(rootN);
 
-            const root = d3.hierarchy(treeData, d => d.children);
-            const treeLayout = d3.tree().size([height - 80, width - 80]);
-            treeLayout(root);
-
-            // 边
+            // 连线
             g.selectAll('.link')
-                .data(root.links())
+                .data(rootN.links())
                 .join('path')
                 .attr('class', 'link')
                 .attr('fill', 'none')
-                .attr('stroke', '#555')
+                .attr('stroke', 'var(--link-color)')
                 .attr('stroke-width', 1.5)
-                .attr('d', d3.linkHorizontal()
-                    .x(d => d.y)
-                    .y(d => d.x)
-                );
+                .attr('d', d3.linkHorizontal().x(d => d.y).y(d => d.x));
 
             // 节点
             const node = g.selectAll('.node')
-                .data(root.descendants())
+                .data(rootN.descendants())
                 .join('g')
                 .attr('class', 'node')
                 .attr('transform', d => `translate(${d.y},${d.x})`)
-                .on('mouseover', (e) => {
-                    d3.select(e.currentTarget).select('circle').attr('fill', '#f00');
+                .on('mouseover', (_, d) => {
+                    const subs = d.descendants();
+                    g.selectAll('circle').attr('fill', n => subs.includes(n) ? '#f00' : 'var(--node-color)');
+                    g.selectAll('.link').attr('stroke',
+                        l => subs.includes(l.source) && subs.includes(l.target) ? '#f00' : 'var(--link-color)');
                 })
-                .on('mouseout', (e) => {
-                    d3.select(e.currentTarget).select('circle').attr('fill', '#999');
+                .on('mouseout', () => {
+                    g.selectAll('circle').attr('fill', 'var(--node-color)');
+                    g.selectAll('.link').attr('stroke', 'var(--link-color)');
                 });
 
             node.append('circle')
-                .attr('r', 5)
-                .attr('fill', '#999');
+                .attr('r', 6)
+                .attr('fill', 'var(--node-color)');
 
             node.append('text')
-                .attr('dy', 3)
-                .attr('x', d => d.children ? -8 : 8)
+                .attr('class', 'node-label')
+                .attr('dy', 4)
+                .attr('x', d => d.children ? -10 : 10)
                 .style('text-anchor', d => d.children ? 'end' : 'start')
-                .text(d => d.data.root);
-
-            // 缩放 & 平移
-            svg.call(d3.zoom().on('zoom', (event) => {
-                g.attr('transform', event.transform);
-            }));
+                .attr('fill', 'var(--node-text)')
+                .text(d => d.data.root)
+                .style('font-size', '12px');
         }
 
-        // 首次渲染
+        // 初次渲染
         parseCode();
     </script>
 </body>

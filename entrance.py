@@ -6,14 +6,21 @@ from lexer.lexer import Lexer
 from parser.parser import Parser
 import uvicorn
 from contextlib import asynccontextmanager
+from lexer.token import tokenType
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("Initialization Start!")
     app.state.lexer = Lexer()
+    print("Lexer Startup Done!")
     app.state.parser = Parser()
+    print("Parser Startup Done!")
+    app.state.map = {member.value: member.name for member in tokenType}
+    print("Map Startup Done!")
     print("Initialization Done!")
     yield
+
 app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
@@ -23,11 +30,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.get("/")
 async def serve_frontend():
     return FileResponse("static/index.html")
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
 
 @app.post("/api/parse")
 async def api_parse(request: Request):
@@ -38,30 +47,43 @@ async def api_parse(request: Request):
     lines = code.splitlines(keepends=True)
 
     # 重置 lexer 状态
-    print(lines)
+    # print(lines)
     # return {"tree": None}
     lexer.token_id = 1
     tokens, success = lexer.getLex(lines)
+    mark_tokens = [
+        {**t, "prop": tokenType(t["prop"]).name}
+        for t in tokens
+    ]
+    # input(tokens)
     if not success:
-        unk = next(t for t in tokens if t["prop"] == "UNKNOWN")
+        unk = next(t for t in mark_tokens if t["prop"] == "UNKNOWN")
         return {
             "error": {
                 "content": unk["content"],
                 "loc": unk["loc"]
-            }
+            },
+            "tokens": mark_tokens
         }
 
-    # 重用 parser 进行语法分析
+    # parser 进行语法分析
     result = parser.parse(tokens)
     if isinstance(result, dict) and result.get("error"):
         return {
             "error": {
                 "content": result["error"],
-                "loc": result["loc"]
-            }
+                "loc": result["loc"],
+                "tok": result["token"]
+            },
+            "tokens": mark_tokens
         }
 
-    return {"tree": result}
+    return {
+        "tree": result,
+        "tokens": mark_tokens,
+        "success": success
+    }
+
 
 if __name__ == "__main__":
     uvicorn.run("entrance:app", host="0.0.0.0", port=8000, reload=True)
