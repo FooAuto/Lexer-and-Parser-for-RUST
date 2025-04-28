@@ -7,6 +7,7 @@ from parser.parser import Parser
 import uvicorn
 from contextlib import asynccontextmanager
 from lexer.token import tokenType
+import sys
 
 
 @asynccontextmanager
@@ -86,4 +87,20 @@ async def api_parse(request: Request):
 
 
 if __name__ == "__main__":
-    uvicorn.run("entrance:app", host="0.0.0.0", port=8000, reload=True)
+    is_frozen = getattr(sys, "frozen", False)
+    if not is_frozen:
+        # 开发时
+        uvicorn.run(
+            "entrance:app",
+            host="0.0.0.0",
+            port=8000,
+            reload=True
+        )
+    else:
+        # 打包时
+        uvicorn.run(
+            app,
+            host="0.0.0.0",
+            port=8000,
+            reload=False
+        )
