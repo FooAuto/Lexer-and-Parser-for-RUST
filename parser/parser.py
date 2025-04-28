@@ -1,3 +1,5 @@
+import pickle
+import os
 import re
 from lexer.token import tokenType
 from lexer.token import tokenType_to_terminal
@@ -50,24 +52,58 @@ class Closure:
 
 
 class Parser:
-    def __init__(self, prod_file="configs/production.cfg"):
-        self.terminal_symbols = [
-            t.name for t in sorted(tokenType, key=lambda x: x.value)
-        ]
+    def __init__(self, prod_file="configs/production.cfg", cache_file=".cache/parser_cache.pkl"):
+        try:
+            prod_mtime = os.path.getmtime(prod_file)
+        except OSError:
+            prod_mtime = 0
+        cache_mtime = os.path.getmtime(
+            cache_file) if os.path.exists(cache_file) else 0
+        if cache_mtime >= prod_mtime:
+            try:
+                with open(cache_file, "rb") as f:
+                    (
+                        self.terminal_symbols,
+                        self.non_terminal_symbols,
+                        self.productions,
+                        self.firsts,
+                        self.closures,
+                        self.gos,
+                        self.action_table,
+                        self.goto_table
+                    ) = pickle.load(f)
+                return
+            except Exception:
+                # 若反序列化失败，则继续下面的重建流程
+                pass
 
+        # 2. 否则按原逻辑计算
+        self.terminal_symbols = [t.name for t in sorted(
+            tokenType, key=lambda x: x.value)]
         self.non_terminal_symbols = ["epsilon"]
-
         self.productions = []
         self.firsts = []
         self.closures = []
         self.gos = []
-        self.goto_table = []
         self.action_table = []
+        self.goto_table = []
 
         self.read_productions(prod_file)
         self.find_firsts()
         self.find_gos()
         self.find_gotos()
+
+        with open(cache_file, "wb") as f:
+            pickle.dump((
+                self.terminal_symbols,
+                self.non_terminal_symbols,
+                self.productions,
+                self.firsts,
+                self.closures,
+                self.gos,
+                self.action_table,
+                self.goto_table
+            ), f)
 
     def get_id(self, symbol: str) -> int:
         if symbol in self.terminal_symbols:
@@ -161,7 +197,7 @@ class Parser:
             if it.dot_pos < len(prod.to_ids):
                 B = prod.to_ids[it.dot_pos]
                 if B >= T:
-                    beta = prod.to_ids[it.dot_pos + 1 :]
+                    beta = prod.to_ids[it.dot_pos + 1:]
                     la_set = set()
                     self.find_firsts_alpha(beta + [it.terminal_id], la_set)
                     for j, p in enumerate(self.productions):
@@ -242,7 +278,8 @@ class Parser:
                     if it.production_id == self.aug_prod_id:
                         # accept on EOF
                         if it.terminal_id == self.terminal_symbols.index("EOF"):
-                            self.action_table[i][it.terminal_id] = (ACTION_ACC, 0)
+                            self.action_table[i][it.terminal_id] = (
+                                ACTION_ACC, 0)
                     else:
                         # normal reduce
                         self.action_table[i][it.terminal_id] = (
@@ -256,7 +293,8 @@ class Parser:
                         self.action_table[i][a] = (ACTION_S, self.gos[i][a])
 
     def parse(self, lex):
-        comments = {tokenType.S_COMMENT, tokenType.LM_COMMENT, tokenType.RM_COMMENT}
+        comments = {tokenType.S_COMMENT,
+                    tokenType.LM_COMMENT, tokenType.RM_COMMENT}
         toks = [
             t for t in lex if t["prop"] not in comments and t["prop"] != tokenType.EOF
         ]
@@ -276,6 +314,7 @@ class Parser:
                 return {
                     "error": f"unexpected token {cur['prop']} ('{cur['content']}')",
                     "loc": cur["loc"],
+                    "token": cur
                 }
             act, val = self.action_table[st][a]
             if act == ACTION_S:  # shift
