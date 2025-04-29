@@ -40,7 +40,7 @@
 
         :root[data-theme="dark"] {
             --bg-main: #1e1e1e;
-            --fg-main: #d4d4d4;
+            --fg-main: #ffffff;
             --border: #3c3c3c;
             --header-bg: #2d2d2d;
             --error-bg: #5a1e1e;
@@ -88,6 +88,7 @@
             flex: 1;
             height: auto;
             background: var(--editor-bg) !important;
+            color: var(--fg-main) !important;
             /* 覆盖默认背景 */
             /* **去掉 color: var(--editor-fg)**，让主题自行上色 */
         }
@@ -399,11 +400,16 @@
         // 渲染语法树
         function renderTree(treeData) {
             g.selectAll('*').remove();
-            const w = +svg.node().clientWidth, h = +svg.node().clientHeight;
-            const rootN = d3.hierarchy(treeData, d => d.children);
-            d3.tree().nodeSize([24, 120])(rootN);
 
-            // 连线
+            const w = +svg.node().clientWidth;
+            const h = +svg.node().clientHeight;
+
+            const rootN = d3.hierarchy(treeData, d => d.children);
+
+
+            d3.tree().nodeSize([60, 180])(rootN);
+
+
             g.selectAll('.link')
                 .data(rootN.links())
                 .join('path')
@@ -411,9 +417,10 @@
                 .attr('fill', 'none')
                 .attr('stroke', 'var(--link-color)')
                 .attr('stroke-width', 1.5)
-                .attr('d', d3.linkHorizontal().x(d => d.y).y(d => d.x));
+                .attr('d', d3.linkHorizontal()
+                    .x(d => d.y)
+                    .y(d => d.x));
 
-            // 节点
             const node = g.selectAll('.node')
                 .data(rootN.descendants())
                 .join('g')
@@ -430,19 +437,23 @@
                     g.selectAll('.link').attr('stroke', 'var(--link-color)');
                 });
 
+
             node.append('circle')
-                .attr('r', 6)
+                .attr('r', 8)
                 .attr('fill', 'var(--node-color)');
+
 
             node.append('text')
                 .attr('class', 'node-label')
                 .attr('dy', 4)
-                .attr('x', d => d.children ? -10 : 10)
-                .style('text-anchor', d => d.children ? 'end' : 'start')
+                .attr('x', 0)
+                .style('text-anchor', 'middle')  
                 .attr('fill', 'var(--node-text)')
                 .text(d => d.data.root)
-                .style('font-size', '12px');
-        }
+                .style('font-size', '13px')
+                .style('pointer-events', 'none');  // 防止 hover 时被误触
+    }
+
 
         // 初次渲染
         parseCode();

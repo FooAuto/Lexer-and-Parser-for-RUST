@@ -59,6 +59,9 @@ class Parser:
             prod_mtime = 0
         cache_mtime = os.path.getmtime(
             cache_file) if os.path.exists(cache_file) else 0
+        cache_dir = os.path.dirname(cache_file)
+        if cache_dir and not os.path.exists(cache_dir):
+            os.makedirs(cache_dir)
         if cache_mtime >= prod_mtime:
             try:
                 with open(cache_file, "rb") as f:
