@@ -320,7 +320,7 @@
         function highlightErrors(error, success) {
             console.log(error)
             console.log("highlightErrors")
-            // errorMarks.forEach(m => m.clear());
+            errorMarks.forEach(m => m.clear());
             errorMarks = [];
             if (!success) {
                 const from = { line: error.tok.loc.row - 1, ch: error.tok.loc.col - 1 };
@@ -336,6 +336,7 @@
         function clearAllMarks() {
             tokenMarks.forEach(m => m.clear());
             tokenMarks = [];
+            errorMarks.forEach(m => m.clear());
         }
 
         // 用不同 class 给每个 token 上色
@@ -447,12 +448,12 @@
                 .attr('class', 'node-label')
                 .attr('dy', 4)
                 .attr('x', 0)
-                .style('text-anchor', 'middle')  
+                .style('text-anchor', 'middle')
                 .attr('fill', 'var(--node-text)')
                 .text(d => d.data.root)
                 .style('font-size', '13px')
                 .style('pointer-events', 'none');  // 防止 hover 时被误触
-    }
+        }
 
 
         // 初次渲染
