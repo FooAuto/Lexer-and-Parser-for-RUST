@@ -3,7 +3,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from lexer.lexer import Lexer
-from parser.parser import Parser
+from lexparser.lexparser import Parser
 import uvicorn
 from contextlib import asynccontextmanager
 from lexer.token import tokenType
