@@ -1,2 +1,5 @@
-PyQt5
-regex
+fastapi==0.115.12
+PyQt5==5.15.11
+PyQt5_sip==12.16.1
+PyQt5_sip==12.17.0
+uvicorn==0.34.2
