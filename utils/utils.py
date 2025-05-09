@@ -24,6 +24,11 @@ from PyQt5.QtCore import QRectF, Qt, QPointF, QPropertyAnimation, QObject, pyqtS
 import sys
 
 
+def resource_path(rel_path: str) -> str:
+    base_path = getattr(sys, "_MEIPASS", os.path.abspath("."))
+    return os.path.join(base_path, rel_path)
+
+
 def visualize_tree_pyqt(node):
     class SignalEmitter(QObject):
         hover_entered = pyqtSignal(str)
@@ -48,7 +53,8 @@ def visualize_tree_pyqt(node):
             return self.rect
 
         def paint(self, painter, option, widget):
-            grad = QLinearGradient(self.rect.topLeft(), self.rect.bottomRight())
+            grad = QLinearGradient(self.rect.topLeft(),
+                                   self.rect.bottomRight())
             grad.setColorAt(0, self.colors[0])
             grad.setColorAt(1, self.colors[1])
             painter.setBrush(QBrush(grad))
@@ -137,7 +143,8 @@ def visualize_tree_pyqt(node):
             self.toolbar.addAction(zoom_in)
             zoom_out = QAction(QIcon(), "Zoom Out", self)
             zoom_out.triggered.connect(
-                lambda: self.view.scale(1 / self.zoom_factor, 1 / self.zoom_factor)
+                lambda: self.view.scale(
+                    1 / self.zoom_factor, 1 / self.zoom_factor)
             )
             self.toolbar.addAction(zoom_out)
             export = QAction(QIcon(), "Export", self)
@@ -193,7 +200,8 @@ def visualize_tree_pyqt(node):
             defaults, hovers = self.day_node if self.is_day else self.night_node
             node_item.colors, node_item.hover_colors = defaults, hovers
             self.scene.addItem(node_item)
-            self.node_items[nid] = {"rect": node_item, "original_pos": QPointF(x, y)}
+            self.node_items[nid] = {"rect": node_item,
+                                    "original_pos": QPointF(x, y)}
 
         def draw_edge(self, px, py, cx, cy):
             path = QPainterPath()
@@ -228,7 +236,8 @@ def visualize_tree_pyqt(node):
                 anim.setEndValue(item["original_pos"])
                 anim.start()
                 self.animations[child] = anim
-                defaults = (self.day_node if self.is_day else self.night_node)[0]
+                defaults = (
+                    self.day_node if self.is_day else self.night_node)[0]
                 item["rect"].colors = defaults
                 item["rect"].update()
 

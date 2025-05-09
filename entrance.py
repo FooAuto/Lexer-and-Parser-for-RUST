@@ -8,6 +8,7 @@ import uvicorn
 from contextlib import asynccontextmanager
 from lexer.token import tokenType
 import sys
+from utils.utils import *
 
 
 @asynccontextmanager
@@ -34,9 +35,11 @@ app.add_middleware(
 
 @app.get("/")
 async def serve_frontend():
-    return FileResponse("static/index.html")
+    path = "static/index.html"
+    path = resource_path(path)
+    return FileResponse(path)
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory=resource_path("static")), name="static")
 
 
 @app.post("/api/parse")
