@@ -635,7 +635,7 @@ class Parser:
 
                 return {
                     "syntax_tree": final_tree,
-                    "quadruples": quads_to_return, # 修改这里
+                    "quadruples": quads_to_return,
                     "symbol_table_debug_print": self.semantic_analyzer.get_symbol_table_string_for_debug()
                 }
             
