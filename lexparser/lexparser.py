@@ -4,9 +4,7 @@ import sys
 import re
 from lexer.token import tokenType
 from lexer.token import tokenType_to_terminal
-# 假设你的 SemanticAnalyzer 在 semantic_analyzer.py 中
-# 根据你的实际文件结构调整导入路径
-from semantic_analyzer import SemanticAnalyzer, SemanticError # 导入 SemanticAnalyzer 和 SemanticError
+from semantic.semantic import SemanticAnalyzer, SemanticError # 导入 SemanticAnalyzer 和 SemanticError
 from utils.utils import * # 你的 utils 导入
 
 
@@ -470,8 +468,6 @@ class Parser:
         comments = {tokenType.S_COMMENT,
                     tokenType.LM_COMMENT, tokenType.RM_COMMENT}
         
-        # lex_tokens_input 是词法分析器返回的原始 token 字典列表
-        # toks 是过滤注释和EOF（暂时）后的token字典列表
         toks_for_parsing = [
             t for t in lex_tokens_input if t["prop"] not in comments # 移除注释
         ]
@@ -481,7 +477,7 @@ class Parser:
         # 你的 tokenType_to_terminal 会返回 tokenType 的 name 属性
         # 确保 self.terminal_symbols 中的名称与 tokenType_to_terminal 返回的一致
         terminal_symbol_names_for_parsing = [tokenType_to_terminal(t["prop"]) for t in toks_for_parsing if t["prop"] != tokenType.EOF] + ["EOF"]
-        
+        input(terminal_symbol_names_for_parsing)
         # 确保 get_id 能正确处理这些名字
         try:
             terminal_ids_for_parsing = [self.get_id(s_name) for s_name in terminal_symbol_names_for_parsing]
