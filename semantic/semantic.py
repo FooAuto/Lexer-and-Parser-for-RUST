@@ -152,10 +152,6 @@ class SemanticAnalyzer:
     # Rule 0.1: <变量声明内部> -> mut <ID>
     # Rule 6.1: <变量声明内部> -> <ID>
     def process_variable_decl_internal(self, p_id, is_mutable_token, line_num):
-        # p_id is the token object for ID
-        # is_mutable_token is the token object for 'mut' or None
-        # Returns: {'name': id_name, 'is_mutable': True/False, 'line': line_num}
-        # This information is then used by rules 2.1, 2.3, 1.4, 5.2
         id_name = p_id['content']
         is_mut = True if is_mutable_token else False
         return {'name': id_name, 'is_mutable': is_mut, 'line': p_id['loc']['row']}
@@ -189,14 +185,22 @@ class SemanticAnalyzer:
 
     # Rule 1.1, 1.5, 7.2: Function Declaration
     def process_function_declaration_header(self, fn_name_token, params_list, return_type_processed, line_num):
-        # params_list: [{'name': str, 'is_mutable': bool, 'type': processed_type, 'line': int}, ...]
-        # return_type_processed: processed type or 'void' if no return type
         fn_name = fn_name_token['content']
-        if self.lookup_symbol(fn_name, None) is not None and self.symbol_tables[0].get(fn_name).sym_type == SymbolType.FUNCTION:
-            raise SemanticError(f"Function '{fn_name}' already declared.", line_num)
+
+        # 检查函数是否已在全局作用域（通常是 scope 0）被声明
+        # 我们直接检查 self.symbol_tables[0]，而不是用 lookup_symbol，因为它找不到时会抛错
+        if fn_name in self.symbol_tables[0] and \
+           self.symbol_tables[0][fn_name].sym_type == SymbolType.FUNCTION:
+            # 如果确实找到了一个同名且类型为FUNCTION的符号，在 process_function_body_end 之后再检查是否重复定义
+            # 或者，如果你希望严格禁止在任何内部作用域“覆盖”全局函数，可以在这里报错
+            # 但通常函数声明主要关注全局作用域的冲突
+            # 为了允许不同作用域的 shadowing (虽然函数通常在全局)，或者更精细的控制，
+            # 这里的检查可以调整。
+            # 但对于顶层函数，如果已存在，则不应重复添加。
+             raise SemanticError(f"Function '{fn_name}' already declared at line {self.symbol_tables[0][fn_name].line_declared}.", line_num)
 
         param_info_for_symtable = []
-        for p_attr in params_list:
+        for p_attr in params_list: # params_list 应该是直接可用的列表
             param_info_for_symtable.append({
                 'name': p_attr['name'],
                 'type': p_attr['type'],
@@ -205,27 +209,41 @@ class SemanticAnalyzer:
 
         extra_info = {'params': param_info_for_symtable, 'return_type': return_type_processed}
         self.add_symbol(fn_name, SymbolType.FUNCTION, return_type_processed, line_num, extra_info=extra_info)
-        self.current_function = {'name': fn_name, 'return_type': return_type_processed, 'entry_label': self._new_label()}
-        self.add_quad("FUNC_BEGIN", arg1=fn_name, result=self.current_function['entry_label'])
+        
+        entry_label = self._new_label()
+        self.add_quad("FUNC_BEGIN", arg1=fn_name, result=entry_label) # 添加到 self.quadruples
+        quad_func_begin = self.quadruples.pop() # 从 self.quadruples 中取出
 
-        self.enter_scope() # Enter function body scope
+        self.current_function = {'name': fn_name, 'return_type': return_type_processed, 'entry_label': entry_label, 'params_attrs': params_list}
+        self.enter_scope()
         for p_attr in params_list:
             self.add_symbol(p_attr['name'], SymbolType.PARAMETER, p_attr['type'], p_attr['line'], is_mutable=p_attr['is_mutable'], initialized=True)
-            self.add_quad("PARAM_DECL", arg1=p_attr['name']) # Or handle params differently in call
-        return {'name': fn_name, 'label': self.current_function['entry_label']}
+        
+        return {'name': fn_name, 
+                'label': entry_label, 
+                'return_type': return_type_processed, 
+                'token_obj': fn_name_token, 
+                'code': [quad_func_begin]} # 将取出的四元式放入返回的 'code' 列表
 
 
-    def process_function_body_end(self, func_name, line_num):
-        # Called after processing function body's statements or expression block
+    def process_function_body_end(self, func_name, line_num, last_expr_attrs_for_implicit_return=None):
         if self.current_function and self.current_function['name'] == func_name:
-            # For void functions, ensure no value was left on "stack" if expression block
-            # If it's an expression block, the last expression's value should be returned implicitly if types match
-            # This is handled by process_return / end of expression block
-            self.add_quad("FUNC_END", arg1=func_name)
+            # 创建 FUNC_END 四元式
+            quad_func_end = Quadruple("FUNC_END", func_name, None, None) 
+            
             self.exit_scope()
             self.current_function = None
+            return {'code': [quad_func_end]} # 返回包含 FUNC_END 的 'code' 列表
         else:
-            raise SemanticError("Mismatched function end.", line_num)
+            # 此处可以抛出错误或返回空的 code，取决于你的错误处理策略
+            # 为了安全，如果 mismatched, 返回空 code 或抛异常
+            # raise SemanticError(f"Mismatched function end for '{func_name}'. Expected '{self.current_function['name'] if self.current_function else 'None'}'.", line_num)
+            # 或者如果current_function为None但尝试结束一个函数
+            if not self.current_function:
+                 raise SemanticError(f"Attempting to end function '{func_name}' but no function is current.", line_num)
+            # 如果名字不匹配
+            raise SemanticError(f"Mismatched function end. Expected '{self.current_function['name']}', got '{func_name}'.", line_num)
+        # return {'code': []} # 理论上不应在正常流程到达这里
 
 
     # Rule 1.3: return ;
@@ -1010,277 +1028,572 @@ class SemanticAnalyzer:
     def dispatch_semantic_action(self, production_rule_str, children_attrs, line_num_approx):
         """
         根据产生式字符串，调度到相应的语义处理函数。
-
-        参数:
-            production_rule_str (str): 当前规约的产生式字符串 (如 "Program -> DeclarationList")。
-            children_attrs (list): 产生式右部各符号的语义属性字典列表。
-                                   每个字典结构: {'type':..., 'place':..., 'code':[], 'token_obj':... (如果是终结符)}
-            line_num_approx (int): 用于错误报告的近似行号。
-        
-        返回:
-            dict: 为产生式左部符号计算得到的语义属性。
         """
 
-        # --- 辅助函数，方便从 children_attrs 中获取信息 ---
+        # 辅助函数，确保即使子节点属性不存在或为None，也能安全获取并提供默认值
         def get_child_attrs(idx):
-            # 获取指定索引的子节点的属性字典
             if idx < len(children_attrs) and children_attrs[idx] is not None:
-                return children_attrs[idx]
-            # 如果子节点是epsilon或者由于某些原因没有属性，返回一个默认空属性字典
-            return {'code': [], 'token_obj': None, 'place': None, 'type': 'unknown_epsilon'}
+                attrs = children_attrs[idx]
+                # 确保每个子属性字典都有 'code' 键，即使是空列表
+                if 'code' not in attrs:
+                    attrs['code'] = []
+                return attrs
+            # 对于epsilon或不存在的子节点，返回一个包含空code列表的默认字典
+            return {'code': [], 'token_obj': None, 'place': None, 'type': 'unknown_epsilon', 'is_empty': True}
 
         def get_token_obj_from_child(child_idx):
-            # 获取指定子节点的 token_obj (通常是终结符的原始token信息)
             child = get_child_attrs(child_idx)
             return child.get('token_obj')
 
-        # --- 产生式规则的条件判断和分发 ---
-        # ❗ 你需要根据 production.txt 中的每一个产生式，在这里添加对应的 if/elif 条件
-        # 字符串必须完全匹配！
-
-        # --- Program (来自 production.txt) ---
+        # --- Program & Declarations ---
         if production_rule_str == "Program -> DeclarationList":
-            # Program 的属性通常是 DeclarationList 的属性 (主要是生成的代码)
             decl_list_attrs = get_child_attrs(0)
-            # 可以在这里进行一些全局的初始化或收尾工作，如果需要的话
-            # self.add_quad("PROGRAM_START") # 例如
-            # final_code = decl_list_attrs.get('code', [])
-            # self.add_quad("PROGRAM_END")
-            # final_code.append(self.quadruples[-1]) # 假设 add_quad 返回quad对象
             return {'code': decl_list_attrs.get('code', [])}
 
-        # --- VariableDeclarationInner (来自 production.txt) ---
+        elif production_rule_str == "DeclarationList -> epsilon":
+            return {'code': []}
+        elif production_rule_str == "DeclarationList -> Declaration DeclarationList":
+            decl_attrs = get_child_attrs(0)
+            decl_list_tail_attrs = get_child_attrs(1)
+            combined_code = decl_attrs.get('code', []) + decl_list_tail_attrs.get('code', [])
+            return {'code': combined_code}
+
+        elif production_rule_str == "Declaration -> FunctionDeclaration":
+            return get_child_attrs(0) # FunctionDeclaration 应返回其 'code'
+
+        # --- VariableDeclarationInner ---
         elif production_rule_str == "VariableDeclarationInner -> MUT IDENTIFIER":
-            mut_token = get_token_obj_from_child(0)     # MUT
-            identifier_token = get_token_obj_from_child(1) # IDENTIFIER
-            return self.process_variable_decl_internal(identifier_token, mut_token, line_num_approx)
-
+            mut_token = get_token_obj_from_child(0)
+            identifier_token = get_token_obj_from_child(1)
+            attrs = self.process_variable_decl_internal(identifier_token, mut_token, line_num_approx)
+            attrs['code'] = [] # 此规则本身不产生代码，但返回的属性应有code字段
+            return attrs
         elif production_rule_str == "VariableDeclarationInner -> IDENTIFIER":
-            identifier_token = get_token_obj_from_child(0) # IDENTIFIER
-            return self.process_variable_decl_internal(identifier_token, None, line_num_approx)
+            identifier_token = get_token_obj_from_child(0)
+            attrs = self.process_variable_decl_internal(identifier_token, None, line_num_approx)
+            attrs['code'] = []
+            return attrs
 
-        # --- Assignable (来自 production.txt) ---
+        # --- Assignable ---
         elif production_rule_str == "Assignable -> IDENTIFIER":
             identifier_token = get_token_obj_from_child(0)
-            # process_assignable_element 需要一个结构化的输入，或直接处理 token
+            # process_assignable_element 返回的字典应包含 'code' (通常为空)
             return self.process_assignable_element({'type': 'id', 'token': identifier_token}, line_num_approx)
+        elif production_rule_str == "Assignable -> MULT IDENTIFIER": # 假设 MULT 是解引用 '*'
+            # id_attrs 应包含 'code' (来自可能的复杂IDENTIFIER的解析)
+            id_attrs = self.process_assignable_element({'type': 'id', 'token': get_token_obj_from_child(1)}, line_num_approx)
+            # process_reference_op 应返回包含解引用代码的 'code'
+            ref_op_attrs = self.process_reference_op('*', id_attrs, line_num_approx)
+            # 合并代码
+            combined_code = id_attrs.get('code', []) + ref_op_attrs.get('code', [])
+            ref_op_attrs['code'] = combined_code
+            return ref_op_attrs
+        elif production_rule_str == "Assignable -> Primary LBRACK Expression RBRACK": # 数组元素访问作为左值
+            primary_attrs = get_child_attrs(0)    # Primary (可能是数组名或更复杂的表达式结果)
+            expr_attrs = get_child_attrs(2)       # Expression (索引)
+            # process_assignable_element 处理数组访问时，会合并 base 和 index 的 code
+            return self.process_assignable_element({
+                'type': 'array_access',
+                'base': primary_attrs,
+                'index': expr_attrs
+            }, line_num_approx)
+        elif production_rule_str == "Assignable -> Primary DOT INTEGER_CONSTANT": # 元组元素访问作为左值
+            primary_attrs = get_child_attrs(0)    # Primary (元组)
+            index_token = get_token_obj_from_child(2) # INTEGER_CONSTANT (索引)
+            return self.process_assignable_element({
+                'type': 'tuple_access',
+                'base': primary_attrs,
+                'index_token': index_token
+            }, line_num_approx)
 
-        # --- Type (来自 production.txt) ---
+
+        # --- Type Productions ---
         elif production_rule_str == "Type -> I32":
-            # I32 是终结符, 其 token_obj 已经由 ACTION_S 放入 attrs
-            # 返回类型属性
             return {'type': 'i32', 'code': [], 'token_obj': get_token_obj_from_child(0)}
+        elif production_rule_str == "Type -> AMP MUT Type":
+            inner_type_attrs = get_child_attrs(2)
+            return {'type': ['&mut', inner_type_attrs.get('type')], 'code': inner_type_attrs.get('code', []), 'token_obj': get_token_obj_from_child(0)}
+        elif production_rule_str == "Type -> AMP Type":
+            inner_type_attrs = get_child_attrs(1)
+            return {'type': ['&', inner_type_attrs.get('type')], 'code': inner_type_attrs.get('code', []), 'token_obj': get_token_obj_from_child(0)}
+        elif production_rule_str == "Type -> LBRACK Type SEMICOLON INTEGER_CONSTANT RBRACK":
+            element_type_attrs = get_child_attrs(1)
+            size_token = get_token_obj_from_child(3)
+            size = -1
+            try:
+                size = int(size_token['content'])
+                if size <= 0: raise SemanticError("数组大小必须为正整数。", line_num_approx)
+            except: raise SemanticError(f"无效的数组大小: {size_token['content'] if size_token else '未知'}", line_num_approx)
+            return {'type': ['[', element_type_attrs.get('type'), size], 'code': element_type_attrs.get('code', []), 'token_obj': get_token_obj_from_child(0)}
+        elif production_rule_str == "Type -> LPAREN TupleTypeInternal RPAREN":
+            tuple_type_internal_attrs = get_child_attrs(1)
+            element_types = tuple_type_internal_attrs.get('element_types', [])
+            return {'type': tuple(element_types), 'code': tuple_type_internal_attrs.get('code', []), 'token_obj': get_token_obj_from_child(0)}
 
-        # --- Factor / Expressions (示例) ---
-        elif production_rule_str == "Factor -> Primary": # 这是一个典型的链式规则
-            return get_child_attrs(0) # 直接传递 Primary 的属性
+        # --- TupleTypeInternal / TypeList ---
+        elif production_rule_str == "TupleTypeInternal -> epsilon":
+            return {'element_types': [], 'code': []}
+        elif production_rule_str == "TupleTypeInternal -> Type": # 按照文法，这可能用于 (T) 形式，通常不认为是元组
+            type_attrs = get_child_attrs(0)
+            return {'element_types': [type_attrs.get('type')], 'code': type_attrs.get('code', [])}
+        elif production_rule_str == "TupleTypeInternal -> Type COMMA TypeList":
+            first_type_attrs = get_child_attrs(0)
+            type_list_attrs = get_child_attrs(2)
+            element_types = [first_type_attrs.get('type')] + type_list_attrs.get('element_types', [])
+            code = first_type_attrs.get('code', []) + type_list_attrs.get('code', [])
+            return {'element_types': element_types, 'code': code}
+        elif production_rule_str == "TypeList -> epsilon":
+            return {'element_types': [], 'code': []}
+        elif production_rule_str == "TypeList -> Type":
+            type_attrs = get_child_attrs(0)
+            return {'element_types': [type_attrs.get('type')], 'code': type_attrs.get('code', [])}
+        elif production_rule_str == "TypeList -> Type COMMA TypeList":
+            first_type_attrs = get_child_attrs(0)
+            tail_type_list_attrs = get_child_attrs(2)
+            element_types = [first_type_attrs.get('type')] + tail_type_list_attrs.get('element_types', [])
+            code = first_type_attrs.get('code', []) + tail_type_list_attrs.get('code', [])
+            return {'element_types': element_types, 'code': code}
 
-        elif production_rule_str == "Primary -> INTEGER_CONSTANT":
-            num_token = get_token_obj_from_child(0)
-            # process_element 通常处理作为右值的 Primary 元素
-            return self.process_element(num_token, line_num_approx)
 
-        elif production_rule_str == "Primary -> Assignable":
-            # Assignable (如 IDENTIFIER) 作为右值
-            assignable_attrs = get_child_attrs(0)
-            return self.process_element(assignable_attrs, line_num_approx)
+        # --- Function Structure ---
+        elif production_rule_str == "FunctionDeclaration -> FunctionHeader StatementBlock":
+            func_header_attrs = get_child_attrs(0)
+            stmt_block_attrs = get_child_attrs(1)
             
-        elif production_rule_str == "AdditionExpression -> AdditionExpression AddOp Term":
-            left_expr_attrs = get_child_attrs(0)
-            add_op_attrs = get_child_attrs(1) # AddOp 可能是一个非终结符，其属性包含 op_token
-            op_token = add_op_attrs.get('token_obj') # 或者如果 AddOp -> PLUS, op_token 在 children_attrs[1]['token_obj']
-            right_term_attrs = get_child_attrs(2)
+            combined_code = func_header_attrs.get('code', []) + stmt_block_attrs.get('code', [])
             
-            # 如果 AddOp 是一个非终结符，确保它的属性包含实际的操作符 token
-            # 例如，如果 AddOp -> PLUS, 那么 add_op_attrs 应该是 {'token_obj': <PLUS_token>}
-            # 如果 AddOp 直接就是 PLUS (即产生式是 AdditionExpression -> AdditionExpression PLUS Term),
-            # 那么 op_token = get_token_obj_from_child(1)
-            # 你需要根据你的 AddOp 如何定义来调整这里 op_token 的获取方式
+            # 从 process_function_body_end 获取 FUNC_END 四元式并合并
+            # 假设 func_header_attrs['name'] 总是存在且正确
+            end_attrs = self.process_function_body_end(func_header_attrs.get('name'), line_num_approx) 
+            combined_code.extend(end_attrs.get('code', []))
             
-            # 假设 AddOp -> PLUS (或 MINUS) 是一个单独的规约，
-            # 并且其属性是 {'op_symbol': '+', 'token_obj': <token for '+'>}
-            # 那么 op_token = add_op_attrs.get('token_obj')
-            # 如果 AddOp -> PLUS 中PLUS是终结符，它的token_obj已经在children_attrs[1]的attrs中
-            actual_op_token = op_token # 假设op_token已经正确获取
-            if not actual_op_token and 'op_symbol' in add_op_attrs: # 兼容 AddOp -> PLUS 这类规则
-                 actual_op_token = add_op_attrs.get('token_obj')
+            return {'name': func_header_attrs.get('name'), 'type': 'function_declaration', 'code': combined_code}
 
+        elif production_rule_str == "FunctionDeclaration -> FunctionHeader BlockExpression":
+            func_header_attrs = get_child_attrs(0)
+            block_expr_attrs = get_child_attrs(1) 
+            
+            combined_code = func_header_attrs.get('code', []) + block_expr_attrs.get('code', [])
+            
+            func_return_type = func_header_attrs.get('return_type', 'void')
+            block_expr_type = block_expr_attrs.get('type', 'void')
+            block_expr_place = block_expr_attrs.get('place')
 
-            if not actual_op_token:
-                # 这是一个重要的检查点。如果你的 AddOp 是一个非终结符，
-                # 你需要确保它的语义动作能把操作符token (`token_obj`) 传递上来。
-                # 或者，你的产生式可能是 AdditionExpression -> AdditionExpression PLUS Term，
-                # 这种情况下，PLUS (child 1) 的 token_obj 就是操作符。
-                # 此处假设 op_token 能被正确取到。
-                # 对于 "AddOp -> PLUS", get_token_obj_from_child(0) (在处理 AddOp 规则时)
-                # 应该返回 PLUS 的 token_obj
-                pass # 确保 op_token 能正确获取
+            # 处理函数返回类型和块表达式的兼容性及隐式返回
+            if func_return_type != 'void':
+                if block_expr_type == 'void':
+                    # 检查行号获取是否准确
+                    err_line = block_expr_attrs.get('token_obj',{}).get('loc',{}).get('row', line_num_approx)
+                    raise SemanticError(f"Function '{func_header_attrs.get('name')}' expects a return value of type {self.get_type_name(func_return_type)}, but block expression returns void.", err_line)
+                self.check_type_compatibility(func_return_type, block_expr_type, line_num_approx)
+                # 创建 RETURN_VAL 四元式 (之前是 add_quad 后 pop，现在直接创建)
+                temp_return_quad = Quadruple("RETURN_VAL", block_expr_place, None, None)
+                combined_code.append(temp_return_quad)
+            elif block_expr_type != 'void' and block_expr_place is not None: # 如果函数返回void，但块表达式有值
+                # Rust 中这种情况是允许的，值会被丢弃。可以考虑添加一个 "DROP" 指令或无操作。
+                # 对于简单的四元式生成，可以不生成额外指令。
+                pass
 
+            # 从 process_function_body_end 获取 FUNC_END 四元式并合并
+            end_attrs = self.process_function_body_end(func_header_attrs.get('name'), line_num_approx, last_expr_attrs_for_implicit_return=block_expr_attrs)
+            combined_code.extend(end_attrs.get('code', []))
+            
+            return {'name': func_header_attrs.get('name'), 'type': 'function_declaration', 'code': combined_code}
 
-            return self.process_binary_op(actual_op_token, left_expr_attrs, right_term_attrs, line_num_approx)
+        elif production_rule_str == "FunctionHeader -> FN IDENTIFIER LPAREN ParameterList RPAREN":
+            id_token = get_token_obj_from_child(1)
+            param_list_cont_attrs = get_child_attrs(3)
+            # process_function_declaration_header 返回的字典应包含 'code' (内含 FUNC_BEGIN)
+            return self.process_function_declaration_header(id_token, param_list_cont_attrs.get('params', []), 'void', line_num_approx)
+        elif production_rule_str == "FunctionHeader -> FN IDENTIFIER LPAREN ParameterList RPAREN ARROW Type":
+            id_token = get_token_obj_from_child(1)
+            param_list_cont_attrs = get_child_attrs(3)
+            return_type_attrs = get_child_attrs(6)
+            return self.process_function_declaration_header(id_token, param_list_cont_attrs.get('params', []), return_type_attrs.get('type'), line_num_approx)
 
-        # 对于 AddOp -> PLUS, AddOp -> MINUS 等规则:
-        elif production_rule_str == "AddOp -> PLUS":
-            plus_token = get_token_obj_from_child(0)
-            return {'op_symbol': '+', 'token_obj': plus_token, 'code': []}
-        elif production_rule_str == "AddOp -> MINUS":
-            minus_token = get_token_obj_from_child(0)
-            return {'op_symbol': '-', 'token_obj': minus_token, 'code': []}
-        # MulOp 类似处理...
-        elif production_rule_str == "MulOp -> MULT":
-            mult_token = get_token_obj_from_child(0)
-            return {'op_symbol': '*', 'token_obj': mult_token, 'code': []}
-        elif production_rule_str == "MulOp -> DIV":
-            div_token = get_token_obj_from_child(0)
-            return {'op_symbol': '/', 'token_obj': div_token, 'code': []}
+        elif production_rule_str == "ParameterList -> epsilon":
+            return {'params': [], 'code': []}
+        elif production_rule_str == "ParameterList -> Parameter":
+            param_attrs = get_child_attrs(0)
+            return {'params': [param_attrs] if param_attrs else [], 'code': param_attrs.get('code', []) if param_attrs else []}
+        elif production_rule_str == "ParameterList -> Parameter COMMA ParameterList":
+            param_attrs = get_child_attrs(0)
+            tail_list_attrs = get_child_attrs(2)
+            params = ([param_attrs] if param_attrs else []) + tail_list_attrs.get('params', [])
+            code = (param_attrs.get('code', []) if param_attrs else []) + tail_list_attrs.get('code', [])
+            return {'params': params, 'code': code}
+
+        elif production_rule_str == "Parameter -> VariableDeclarationInner COLON Type":
+            var_decl_inner_attrs = get_child_attrs(0)
+            type_attrs = get_child_attrs(2)
+            # 这个方法应该返回一个包含参数完整信息的字典，以及可能的代码
+            # 假设 VariableDeclarationInner 和 Type 本身不产生独立执行的代码，code 主要来自更复杂的类型
+            combined_code = var_decl_inner_attrs.get('code', []) + type_attrs.get('code', [])
+            return {
+                'name': var_decl_inner_attrs.get('name'),
+                'is_mutable': var_decl_inner_attrs.get('is_mutable', False),
+                'type': type_attrs.get('type'),
+                'line': var_decl_inner_attrs.get('line', line_num_approx),
+                'token_obj': var_decl_inner_attrs.get('token_obj'),
+                'code': combined_code
+            }
+
+        # --- StatementBlock / StatementList ---
+        elif production_rule_str == "StatementBlock -> LBRACE StatementList RBRACE":
+            stmt_list_attrs = get_child_attrs(1)
+            # 作用域由调用方（如函数声明、块表达式）处理
+            return {'code': stmt_list_attrs.get('code', [])}
+        elif production_rule_str == "StatementList -> epsilon":
+            return {'code': []}
+        elif production_rule_str == "StatementList -> Statement StatementList":
+            stmt_attrs = get_child_attrs(0)
+            stmt_list_tail_attrs = get_child_attrs(1)
+            combined_code = stmt_attrs.get('code', []) + stmt_list_tail_attrs.get('code', [])
+            return {'code': combined_code}
 
 
         # --- Statements ---
+        elif production_rule_str == "Statement -> SEMICOLON":
+            return {'code': []}
+        elif production_rule_str == "Statement -> ReturnStatement":
+            return get_child_attrs(0)
         elif production_rule_str == "Statement -> LET VariableDeclarationInner COLON Type SEMICOLON":
-            # child 0: LET (token)
-            # child 1: VariableDeclarationInner (attrs)
-            # child 2: COLON (token)
-            # child 3: Type (attrs)
-            # child 4: SEMICOLON (token)
             var_decl_inner_attrs = get_child_attrs(1)
             type_attrs = get_child_attrs(3)
+            # process_variable_declaration 应返回包含 'code' 的属性
             return self.process_variable_declaration(var_decl_inner_attrs, type_attrs, line_num_approx)
-
         elif production_rule_str == "Statement -> LET VariableDeclarationInner SEMICOLON":
             var_decl_inner_attrs = get_child_attrs(1)
-            return self.process_variable_declaration(var_decl_inner_attrs, None, line_num_approx) # Type is None (for inference)
+            return self.process_variable_declaration(var_decl_inner_attrs, None, line_num_approx)
+        elif production_rule_str == "Statement -> AssignmentStatement":
+            return get_child_attrs(0)
+        elif production_rule_str == "Statement -> VariableDeclarationAssignmentStatement":
+            return get_child_attrs(0) # 这个节点应该返回包含赋值四元式的 code
+        elif production_rule_str == "Statement -> Expression SEMICOLON":
+            expr_attrs = get_child_attrs(0)
+            return {'code': expr_attrs.get('code', []), 'type':'void_statement_expr'}
+        elif production_rule_str == "Statement -> IfStatement":
+            return get_child_attrs(0)
+        elif production_rule_str == "Statement -> WhileStatement":
+            return get_child_attrs(0)
+        elif production_rule_str == "Statement -> ForStatement":
+            return get_child_attrs(0)
+        elif production_rule_str == "Statement -> LoopStatement":
+            return get_child_attrs(0)
+        elif production_rule_str == "Statement -> BREAK SEMICOLON":
+            break_token = get_token_obj_from_child(0)
+            return self.process_break_continue(break_token, None, line_num_approx)
+        elif production_rule_str == "Statement -> CONTINUE SEMICOLON":
+            continue_token = get_token_obj_from_child(0)
+            return self.process_break_continue(continue_token, None, line_num_approx)
+        elif production_rule_str == "Statement -> BREAK Expression SEMICOLON":
+            break_token = get_token_obj_from_child(0)
+            expr_attrs = get_child_attrs(1)
+            return self.process_break_continue(break_token, expr_attrs, line_num_approx)
+
+        # --- ReturnStatement ---
+        elif production_rule_str == "ReturnStatement -> RETURN SEMICOLON":
+            return self.process_return_statement(None, line_num_approx)
+        elif production_rule_str == "ReturnStatement -> RETURN Expression SEMICOLON":
+            expr_attrs = get_child_attrs(1)
+            return self.process_return_statement(expr_attrs, line_num_approx)
+
+        # --- AssignmentStatement ---
+        elif production_rule_str == "AssignmentStatement -> VariableDeclarationInner ASSIGN Expression SEMICOLON":
+            var_decl_inner_attrs = get_child_attrs(0)
+            expr_attrs = get_child_attrs(2)
+            # 此处需要确保 var_decl_inner_attrs 能够被 process_assignment 正确用作左值
+            # 通常 VariableDeclarationInner 只包含 name 和 is_mutable, 可能不包含 type 和 place
+            # process_assignment 内部需要通过 name 从符号表查找完整的左值信息
+            # 或者，如此处设计，构造一个临时的 assignable_attrs
+            simulated_assignable_attrs = {
+                'name': var_decl_inner_attrs.get('name'),
+                'is_lvalue': True,
+                'is_mutable': var_decl_inner_attrs.get('is_mutable'),
+                'place': var_decl_inner_attrs.get('name'), # 假设变量名就是其 place
+                'code': var_decl_inner_attrs.get('code', []), # 通常为空
+                'token_obj': var_decl_inner_attrs.get('token_obj')
+            }
+            # process_assignment 应返回包含 'code' (ASSIGN四元式) 的属性
+            assign_attrs = self.process_assignment(simulated_assignable_attrs, expr_attrs, line_num_approx)
+            # 合并来自 VariableDeclarationInner (如果有) 和 expr_attrs (如果有) 和 assign_attrs 的代码
+            # 但通常前两者代码在 assign_attrs['code'] 中已由 process_assignment 合并
+            return assign_attrs
 
         elif production_rule_str == "AssignmentStatement -> Assignable ASSIGN Expression SEMICOLON":
-            # child 0: Assignable (attrs)
-            # child 1: ASSIGN (token)
-            # child 2: Expression (attrs)
-            # child 3: SEMICOLON (token)
-            assignable_attrs = get_child_attrs(0)
-            expr_attrs = get_child_attrs(2)
+            assignable_attrs = get_child_attrs(0) # Assignable 应包含其自身的 code (如数组/元组索引计算)
+            expr_attrs = get_child_attrs(2)       # Expression 应包含其自身的 code
+            # process_assignment 返回的 'code' 应包含 Assignable, Expression 的 code, 以及新的 ASSIGN 四元式
             return self.process_assignment(assignable_attrs, expr_attrs, line_num_approx)
-        
-        # 根据你的 production.txt，AssignmentStatement 也可能是 VariableDeclarationInner ASSIGN Expression SEMICOLON
-        # 这其实更像是声明并赋值，但如果 VariableDeclarationInner 被当作 Assignable 的一种（例如通过链式规则）
-        # 或者这里 VariableDeclarationInner 的属性需要转换成 Assignable 的属性。
-        # 假设 VariableDeclarationInner (通过 IDENTIFIER) 返回的属性与 Assignable -> IDENTIFIER 兼容。
-        elif production_rule_str == "AssignmentStatement -> VariableDeclarationInner ASSIGN Expression SEMICOLON":
-            # 如果 VariableDeclarationInner 的属性可以直接用作 process_assignment 的第一个参数
-            # (即它包含了 name, type, is_lvalue, is_mutable, place 等)，那么：
-            var_decl_inner_as_assignable_attrs = get_child_attrs(0)
-            expr_attrs = get_child_attrs(2)
-            # 你可能需要一个转换函数或确保 process_variable_decl_internal 返回的属性与 process_assignment 兼容
-            # 这是一个潜在的复杂点，取决于这两个 process_ 函数的返回值/期望值。
-            # 假设 process_variable_decl_internal 返回的 name, is_mutable 足够，
-            # 并且 process_assignment 内部会通过 name 查找符号表获取 type 等信息。
-            # 为了安全，我们应该确保 var_decl_inner_as_assignable_attrs 包含 'name' 和 'is_mutable'
-            # 并且 process_assignment 的第一个参数能处理这种情况，或者有一个适配层。
-            #
-            # 一个更清晰的方式可能是，VariableDeclarationInner 本身不直接作为 Assignable。
-            # 如果它确实可以，那么它的属性结构需要符合 Assignable 的期望。
-            # 对于 'mut x = y;', 'mut x' 是 VariableDeclarationInner, 不是 Assignable。
-            # Assignable 主要是 'x = y;' 中的 'x'。
-            # 因此，这个产生式 AssignmentStatement -> VariableDeclarationInner ASSIGN Expression SEMICOLON
-            # 语义上更像是一个带有初始化的可变变量声明，但没有 'let'。这在 Rust 中不常见。
-            # 如果这是语言设计的一部分，你需要一个特定的 process_ 函数。
-            #
-            # 鉴于 production.txt 中有专门的 VariableDeclarationAssignmentStatement,
-            # 这个 AssignmentStatement 规则可能用于已经声明的变量。
-            # 如果 VariableDeclarationInner 总是通过 IDENTIFIER 归约而来，
-            # 并且 process_variable_decl_internal 只返回 {'name': ..., 'is_mutable': ...},
-            # 那么 process_assignment 需要通过这个名字去符号表中查找完整的符号信息。
-            #
-            # 假设：process_assignment 会用 var_decl_inner_as_assignable_attrs['name'] 去符号表查找。
-            assignable_simulated_attrs = {
-                'name': var_decl_inner_as_assignable_attrs.get('name'),
-                'is_lvalue': True, # Implied by context
-                'is_mutable': var_decl_inner_as_assignable_attrs.get('is_mutable'), # From VariableDeclarationInner
-                # 'type' and 'place' will be looked up or determined by process_assignment
-                'code': var_decl_inner_as_assignable_attrs.get('code', []),
-                'token_obj': var_decl_inner_as_assignable_attrs.get('token_obj')
-            }
-            return self.process_assignment(assignable_simulated_attrs, expr_attrs, line_num_approx)
 
-
+        # --- VariableDeclarationAssignmentStatement ---
         elif production_rule_str == "VariableDeclarationAssignmentStatement -> LET VariableDeclarationInner ASSIGN Expression SEMICOLON":
             var_decl_inner_attrs = get_child_attrs(1)
             expr_attrs = get_child_attrs(3)
+            # process_variable_declaration_assignment 返回的字典应包含 'code' (内含 ASSIGN)
             return self.process_variable_declaration_assignment(var_decl_inner_attrs, None, expr_attrs, line_num_approx)
-
         elif production_rule_str == "VariableDeclarationAssignmentStatement -> LET VariableDeclarationInner COLON Type ASSIGN Expression SEMICOLON":
             var_decl_inner_attrs = get_child_attrs(1)
             type_attrs = get_child_attrs(3)
             expr_attrs = get_child_attrs(5)
             return self.process_variable_declaration_assignment(var_decl_inner_attrs, type_attrs, expr_attrs, line_num_approx)
 
+        # --- Expressions (Chain rules) ---
+        elif production_rule_str == "Expression -> AdditionExpression":
+            return get_child_attrs(0)
+        elif production_rule_str == "AdditionExpression -> Term":
+            return get_child_attrs(0)
+        elif production_rule_str == "Term -> Factor":
+            return get_child_attrs(0)
+        elif production_rule_str == "Factor -> Primary":
+            return get_child_attrs(0)
 
-        # --- Function Calls (需要根据你的 ArgumentList 等规则具体化) ---
+        # --- Expressions (Operations) ---
+        elif production_rule_str == "Expression -> Expression ComparisonOperator AdditionExpression":
+            left_expr_attrs = get_child_attrs(0)
+            comp_op_attrs = get_child_attrs(1)
+            right_add_expr_attrs = get_child_attrs(2)
+            op_token = comp_op_attrs.get('token_obj')
+            # process_binary_op 返回的字典应包含 'code' (操作的四元式 + 子表达式的 code)
+            return self.process_binary_op(op_token, left_expr_attrs, right_add_expr_attrs, line_num_approx)
+        elif production_rule_str == "AdditionExpression -> AdditionExpression AddOp Term":
+            left_add_expr_attrs = get_child_attrs(0)
+            add_op_attrs = get_child_attrs(1)
+            right_term_attrs = get_child_attrs(2)
+            op_token = add_op_attrs.get('token_obj')
+            return self.process_binary_op(op_token, left_add_expr_attrs, right_term_attrs, line_num_approx)
+        elif production_rule_str == "Term -> Term MulOp Factor":
+            left_term_attrs = get_child_attrs(0)
+            mul_op_attrs = get_child_attrs(1)
+            right_factor_attrs = get_child_attrs(2)
+            op_token = mul_op_attrs.get('token_obj')
+            return self.process_binary_op(op_token, left_term_attrs, right_factor_attrs, line_num_approx)
+
+        # --- Primary Expressions ---
+        elif production_rule_str == "Primary -> INTEGER_CONSTANT":
+            num_token = get_token_obj_from_child(0)
+            # process_element 返回的字典应包含 'code' (通常为空，因为常量不产生指令)
+            return self.process_element(num_token, line_num_approx)
+        elif production_rule_str == "Primary -> MINUS INTEGER_CONSTANT":
+            minus_token = get_token_obj_from_child(0) # Token for MINUS
+            num_token = get_token_obj_from_child(1)   # Token for INTEGER_CONSTANT
+            # 构造 0 - number
+            zero_attrs = {'type':'i32', 'place':0, 'code':[], 'token_obj': None} # 构造一个临时的0
+            num_attrs = self.process_element(num_token, line_num_approx) # 获取数字的属性
+            # process_binary_op 将合并 zero_attrs.code, num_attrs.code, 和 SUB 的代码
+            return self.process_binary_op(minus_token, zero_attrs, num_attrs, line_num_approx)
+        elif production_rule_str == "Primary -> Assignable":
+            assignable_attrs = get_child_attrs(0)
+            # process_element 会处理将左值用作右值（可能需要LOAD）并返回 'code'
+            return self.process_element(assignable_attrs, line_num_approx)
+        elif production_rule_str == "Primary -> LPAREN Expression RPAREN":
+            return get_child_attrs(1) # 传递 Expression 的属性，包括 code
         elif production_rule_str == "Primary -> IDENTIFIER LPAREN ArgumentList RPAREN":
-            identifier_token = get_token_obj_from_child(0)
-            # ArgumentList 规约后，其 attrs 应该包含一个 args 列表和生成的 code
-            arg_list_container_attrs = get_child_attrs(2) # ArgumentList 的属性
-            actual_args_attrs_list = arg_list_container_attrs.get('args', []) if arg_list_container_attrs else []
-            # 合并 ArgumentList 自身生成的代码
-            call_code = arg_list_container_attrs.get('code', []) if arg_list_container_attrs else []
-            
-            result_attrs = self.process_function_call(identifier_token, actual_args_attrs_list, line_num_approx)
-            # 将参数列表生成的代码和函数调用本身生成的代码合并
-            result_attrs['code'] = call_code + result_attrs.get('code', [])
-            return result_attrs
+            id_token = get_token_obj_from_child(0)
+            arg_list_cont_attrs = get_child_attrs(2)
+            args_list = arg_list_cont_attrs.get('args', [])
+            # process_function_call 返回的字典应包含 'code' (内含 PARAM 和 CALL 四元式 + 参数表达式的 code)
+            func_call_attrs = self.process_function_call(id_token, args_list, line_num_approx)
+            # 参数列表本身也可能有代码（来自其内部表达式）
+            # process_function_call 应该已经合并了参数的代码
+            # 但如果 ArgumentList 自身作为非终结符有独立代码，需要在这里合并
+            # 假设 process_function_call 已经处理了 args_list 中每个 arg 的 code
+            # 并且 arg_list_cont_attrs['code'] 是 ArgumentList 规则自身结构产生的代码（通常不多）
+            final_code = arg_list_cont_attrs.get('code', []) + func_call_attrs.get('code', [])
+            func_call_attrs['code'] = final_code
+            return func_call_attrs
 
-        # ArgumentList 的规约规则
-        elif production_rule_str == "ArgumentList -> epsilon":
-            return {'args': [], 'code': []} # 没有参数，没有代码
+        elif production_rule_str == "Primary -> LBRACK ArrayElements RBRACK": # 数组字面量
+            array_elements_attrs = get_child_attrs(1) # 应包含 'elements' 和这些 elements 的 'code'
+            # process_array_literal 返回的字典应包含 'code' (ARRAY_INIT, ARRAY_SET 等)
+            return self.process_array_literal(array_elements_attrs.get('elements', []), None, line_num_approx)
+        elif production_rule_str == "Primary -> LPAREN TupleAssignmentInternal RPAREN": # 元组字面量
+            tuple_internal_attrs = get_child_attrs(1)
+            return self.process_tuple_literal(tuple_internal_attrs.get('elements', []), None, line_num_approx)
+
+        # --- Operators (passing up token_obj) ---
+        elif production_rule_str == "ComparisonOperator -> LT": return {'op_symbol': '<', 'token_obj': get_token_obj_from_child(0), 'code': []}
+        elif production_rule_str == "ComparisonOperator -> LE": return {'op_symbol': '<=', 'token_obj': get_token_obj_from_child(0), 'code': []}
+        elif production_rule_str == "ComparisonOperator -> GT": return {'op_symbol': '>', 'token_obj': get_token_obj_from_child(0), 'code': []}
+        elif production_rule_str == "ComparisonOperator -> GE": return {'op_symbol': '>=', 'token_obj': get_token_obj_from_child(0), 'code': []}
+        elif production_rule_str == "ComparisonOperator -> EQ": return {'op_symbol': '==', 'token_obj': get_token_obj_from_child(0), 'code': []}
+        elif production_rule_str == "ComparisonOperator -> NEQ": return {'op_symbol': '!=', 'token_obj': get_token_obj_from_child(0), 'code': []}
+        elif production_rule_str == "AddOp -> PLUS": return {'op_symbol': '+', 'token_obj': get_token_obj_from_child(0), 'code': []}
+        elif production_rule_str == "AddOp -> MINUS": return {'op_symbol': '-', 'token_obj': get_token_obj_from_child(0), 'code': []}
+        elif production_rule_str == "MulOp -> MULT": return {'op_symbol': '*', 'token_obj': get_token_obj_from_child(0), 'code': []}
+        elif production_rule_str == "MulOp -> DIV": return {'op_symbol': '/', 'token_obj': get_token_obj_from_child(0), 'code': []}
+
+        # --- ArgumentList / ArrayElements (List construction) ---
+        elif production_rule_str == "ArgumentList -> epsilon": return {'args': [], 'code': []}
         elif production_rule_str == "ArgumentList -> Expression":
             expr_attrs = get_child_attrs(0)
-            # 返回一个包含单个参数属性和其代码的列表
             return {'args': [expr_attrs], 'code': expr_attrs.get('code', [])}
         elif production_rule_str == "ArgumentList -> Expression COMMA ArgumentList":
-            # 这是右递归的列表， Expression 是头，ArgumentList 是尾
-            expr_attrs = get_child_attrs(0) # 当前的 Expression
-            arg_list_tail_attrs = get_child_attrs(2) # 剩余的 ArgumentList
-            
-            all_args = [expr_attrs] + (arg_list_tail_attrs.get('args', []) if arg_list_tail_attrs else [])
-            
-            # 合并代码：当前 Expression 的代码 + 尾部 ArgumentList 的代码
-            combined_code = expr_attrs.get('code', [])
-            if arg_list_tail_attrs:
-                combined_code.extend(arg_list_tail_attrs.get('code', []))
-            return {'args': all_args, 'code': combined_code}
+            expr_attrs = get_child_attrs(0)
+            tail_list_attrs = get_child_attrs(2)
+            args = [expr_attrs] + tail_list_attrs.get('args', [])
+            code = expr_attrs.get('code', []) + tail_list_attrs.get('code', [])
+            return {'args': args, 'code': code}
+
+        elif production_rule_str == "ArrayElements -> epsilon": return {'elements': [], 'code': []}
+        elif production_rule_str == "ArrayElements -> Expression":
+            expr_attrs = get_child_attrs(0)
+            return {'elements': [expr_attrs], 'code': expr_attrs.get('code', [])}
+        elif production_rule_str == "ArrayElements -> Expression COMMA ArrayElements":
+            expr_attrs = get_child_attrs(0)
+            tail_list_attrs = get_child_attrs(2)
+            elements = [expr_attrs] + tail_list_attrs.get('elements', [])
+            code = expr_attrs.get('code', []) + tail_list_attrs.get('code', [])
+            return {'elements': elements, 'code': code}
+        
+        # --- Factor -> LBRACK ArrayElementsList RBRACK 对应于 ArrayElementsList 的处理
+        elif production_rule_str == "Factor -> LBRACK ArrayElementsList RBRACK":
+            array_elements_list_attrs = get_child_attrs(1)
+            return self.process_array_literal(array_elements_list_attrs.get('elements', []), None, line_num_approx)
+        
+        # --- ArrayElementsList 的规则
+        elif production_rule_str == "ArrayElementsList -> epsilon":
+            return {'elements': [], 'code': []}
+        elif production_rule_str == "ArrayElementsList -> Expression":
+            expr_attrs = get_child_attrs(0)
+            return {'elements': [expr_attrs], 'code': expr_attrs.get('code', [])}
+        elif production_rule_str == "ArrayElementsList -> Expression COMMA ArrayElementsList":
+            expr_attrs = get_child_attrs(0)
+            tail_list_attrs = get_child_attrs(2)
+            elements = [expr_attrs] + tail_list_attrs.get('elements', [])
+            code = expr_attrs.get('code', []) + tail_list_attrs.get('code', [])
+            return {'elements': elements, 'code': code}
 
 
-        # --- 空语句 ---
-        elif production_rule_str == "Statement -> SEMICOLON":
-            return {'code': []} # 空语句不产生代码
+        # --- Control Flow: If, Else, While, For, Loop ---
+        elif production_rule_str == "IfStatement -> IF Expression StatementBlock ElsePart":
+            cond_expr_attrs = get_child_attrs(1)
+            true_block_attrs = get_child_attrs(2)
+            else_part_attrs = get_child_attrs(3) # ElsePart 自身也应传递 'code'
+            # process_if_statement 应该负责合并所有这些部分的code并生成跳转指令
+            return self.process_if_statement(cond_expr_attrs, true_block_attrs, else_part_attrs, line_num_approx)
+        elif production_rule_str == "ElsePart -> epsilon":
+            return {'code': [], 'is_empty': True}
+        elif production_rule_str == "ElsePart -> ELSE StatementBlock":
+            else_block_attrs = get_child_attrs(1) # StatementBlock 包含其 code
+            return {'code': else_block_attrs.get('code', []), 'is_empty': False}
+        elif production_rule_str == "ElsePart -> ELSE IF Expression StatementBlock ElsePart":
+            # 这个结构由 process_if_statement 内部通过 else_part_attrs 的 'is_else_if' 标志递归处理
+            # 这里返回一个结构体，供 process_if_statement 解析
+            cond_expr_attrs = get_child_attrs(2)
+            true_block_attrs = get_child_attrs(3)
+            tail_else_part_attrs = get_child_attrs(4)
+            # 收集这些子部分的 code，尽管主要跳转逻辑在 process_if_statement 中生成
+            current_code = cond_expr_attrs.get('code', []) + \
+                           true_block_attrs.get('code', []) + \
+                           tail_else_part_attrs.get('code', [])
+            return {
+                'is_else_if': True,
+                'condition': cond_expr_attrs,
+                'true_block': true_block_attrs,
+                'remaining_else_part': tail_else_part_attrs,
+                'is_empty': False,
+                'code': current_code # 传递子代码，但实际控制流代码由process_if_statement生成
+            }
+        elif production_rule_str == "WhileStatement -> WHILE Expression StatementBlock":
+            cond_expr_attrs = get_child_attrs(1)
+            body_block_attrs = get_child_attrs(2)
+            return self.process_while_loop(cond_expr_attrs, body_block_attrs, line_num_approx)
+        elif production_rule_str == "ForStatement -> FOR VariableDeclarationInner IN IterableStructure StatementBlock":
+            loop_var_decl_attrs = get_child_attrs(1)
+            iterable_attrs = get_child_attrs(3)
+            body_block_attrs = get_child_attrs(4)
+            return self.process_for_loop(loop_var_decl_attrs, iterable_attrs, body_block_attrs, line_num_approx)
+        elif production_rule_str == "LoopStatement -> LOOP StatementBlock": # 普通 loop 语句
+            body_block_attrs = get_child_attrs(1)
+            return self.process_loop_statement(body_block_attrs, line_num_approx)
 
-        # --- 链式规则的默认处理 (如果上面没有显式处理) ---
-        # 例如: Expression -> AdditionExpression
-        #      Term -> Factor
-        #      ...等等
-        # 注意：这个默认处理比较通用，如果某个链式规则有特殊需求，应在上面显式处理。
-        # 一个简单的判断：如果产生式右部只有一个非终结符。
-        parts = production_rule_str.split("->")
-        if len(parts) == 2:
-            rhs_symbols = parts[1].strip().split(" ")
-            if len(rhs_symbols) == 1 and rhs_symbols[0].isupper(): # 假设非终结符大写开头
-                # print(f"Info: Applying default chain rule pass-through for '{production_rule_str}'")
-                return get_child_attrs(0) # 直接返回唯一子节点的属性
+        # --- BlockExpression & related ---
+        elif production_rule_str == "Expression -> BlockExpression":
+            return get_child_attrs(0)
+        elif production_rule_str == "BlockExpression -> LBRACE BlockStmtList RBRACE":
+            self.enter_scope() # 块表达式引入新作用域
+            block_stmt_list_attrs = get_child_attrs(1)
+            self.exit_scope()
+            # BlockStmtList 应返回 {type, place, code}
+            return block_stmt_list_attrs
+        elif production_rule_str == "BlockStmtList -> Expression": # 块以表达式结尾
+            expr_attrs = get_child_attrs(0)
+            return {'type': expr_attrs.get('type'), 'place': expr_attrs.get('place'), 'code': expr_attrs.get('code', [])}
+        elif production_rule_str == "BlockStmtList -> Statement BlockStmtList":
+            stmt_attrs = get_child_attrs(0)
+            tail_list_attrs = get_child_attrs(1)
+            combined_code = stmt_attrs.get('code', []) + tail_list_attrs.get('code', [])
+            # 类型和place由尾部列表决定 (如果尾部是Expression)
+            return {'type': tail_list_attrs.get('type', 'void'), 'place': tail_list_attrs.get('place'), 'code': combined_code}
 
-        # --- 如果没有任何规则匹配 ---
+        # --- Advanced Expressions ---
+        elif production_rule_str == "Expression -> ConditionalExpression":
+            return get_child_attrs(0)
+        elif production_rule_str == "Expression -> LoopExpression":
+            return get_child_attrs(0)
+        elif production_rule_str == "LoopExpression -> LOOP StatementBlock": # loop 表达式
+            body_block_attrs = get_child_attrs(1)
+            return self.process_loop_expression(body_block_attrs, line_num_approx)
+        elif production_rule_str == "ConditionalExpression -> IF Expression BlockExpression ELSE BlockExpression":
+            cond_expr_attrs = get_child_attrs(1)
+            true_block_expr_attrs = get_child_attrs(2)
+            false_block_expr_attrs = get_child_attrs(4)
+            return self.process_conditional_expression(cond_expr_attrs, true_block_expr_attrs, false_block_expr_attrs, line_num_approx)
+
+        # --- Tuple Literal Internals ---
+        elif production_rule_str == "TupleAssignmentInternal -> epsilon":
+            return {'elements': [], 'code': []}
+        elif production_rule_str == "TupleAssignmentInternal -> Expression COMMA TupleAssignmentList":
+            first_expr_attrs = get_child_attrs(0)
+            tuple_list_attrs = get_child_attrs(2)
+            elements = [first_expr_attrs] + tuple_list_attrs.get('elements', [])
+            code = first_expr_attrs.get('code', []) + tuple_list_attrs.get('code', [])
+            return {'elements': elements, 'code': code}
+        elif production_rule_str == "TupleAssignmentList -> epsilon":
+            return {'elements': [], 'code': []}
+        elif production_rule_str == "TupleAssignmentList -> Expression":
+            expr_attrs = get_child_attrs(0)
+            return {'elements': [expr_attrs], 'code': expr_attrs.get('code', [])}
+        elif production_rule_str == "TupleAssignmentList -> Expression COMMA TupleAssignmentList":
+            expr_attrs = get_child_attrs(0)
+            tail_list_attrs = get_child_attrs(2)
+            elements = [expr_attrs] + tail_list_attrs.get('elements', [])
+            code = expr_attrs.get('code', []) + tail_list_attrs.get('code', [])
+            return {'elements': elements, 'code': code}
         else:
-            # print(f"警告: dispatch_semantic_action 中没有找到产生式 '{production_rule_str}' 的特定处理。")
-            # 返回一个默认的空属性，或者抛出错误，取决于你的设计
-            # 对于很多纯粹的语法结构规则 (比如 StatementList -> Statement StatementList 的容器规则)
-            # 可能只需要合并子节点的 'code' 属性。
-            # 这个默认返回需要非常小心。
-            # 一个更安全的默认可能是：
-            # collected_code = []
-            # for child_attr in children_attrs:
-            #     if child_attr and 'code' in child_attr:
-            #         collected_code.extend(child_attr['code'])
-            # return {'code': collected_code}
-            # 但这对于期望特定返回结构 (如 type, place) 的规则是不够的。
-            # 最好的做法是为 *所有* 会产生语义值的产生式编写显式的处理分支。
-            return {'code': []} # 或者根据需要更复杂的默认聚合逻辑
+            print(f"警告: dispatch_semantic_action 中 '{production_rule_str}' (行 ~{line_num_approx}) 未精确匹配，使用默认聚合/传递。")
+            collected_code = []
+            passed_attrs = {}
+            first_significant_child_attrs = None
+
+            for i, child_attr in enumerate(children_attrs):
+                if child_attr:
+                    collected_code.extend(child_attr.get('code', []))
+                    if i == 0 and not child_attr.get('is_empty', False):
+                        first_significant_child_attrs = child_attr
+            
+            if first_significant_child_attrs:
+                passed_attrs = {k: v for k, v in first_significant_child_attrs.items() if k != 'code'}
+            
+            passed_attrs['code'] = collected_code
+            
+            # 更安全的默认：如果不是明确的链式规则 A -> B，只返回合并的 code
+            is_simple_chain = False
+            parts = production_rule_str.split("->")
+            if len(parts) == 2:
+                rhs_symbols_str_list = parts[1].strip().split(" ")
+                if len(rhs_symbols_str_list) == 1 and children_attrs and children_attrs[0] is not None:
+                    is_simple_chain = True
+            
+            if is_simple_chain:
+                 # 对于 A -> B，直接返回 B 的所有属性
+                print(f"调试: 应用默认链式规则传递 '{production_rule_str}' -> child 0 attrs: {children_attrs[0]}")
+                return children_attrs[0] 
+            else:
+                # 对于其他未处理规则，至少返回收集到的代码
+                print(f"警告: '{production_rule_str}' 未显式处理，仅聚合代码。返回: {passed_attrs}")
+                return {'code': collected_code} # 或者 passed_attrs 如果你认为它更合适
 
     def get_symbol_table_string_for_debug(self):
         output = []

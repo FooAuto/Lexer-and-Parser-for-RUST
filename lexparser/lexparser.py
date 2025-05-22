@@ -68,9 +68,7 @@ class Parser:
         if cache_dir and not os.path.exists(cache_dir):
             os.makedirs(cache_dir)
         
-        # --- 新增：初始化 SemanticAnalyzer ---
         self.semantic_analyzer = SemanticAnalyzer()
-        # --- 结束新增 ---
 
         if cache_mtime >= prod_mtime:
             try:
@@ -472,20 +470,12 @@ class Parser:
             t for t in lex_tokens_input if t["prop"] not in comments # 移除注释
         ]
         
-        # syms 是 token 类型名列表 (用于构造树的节点名)
-        # ids 是 token 类型对应的ID列表 (用于查ACTION/GOTO表)
-        # 你的 tokenType_to_terminal 会返回 tokenType 的 name 属性
-        # 确保 self.terminal_symbols 中的名称与 tokenType_to_terminal 返回的一致
         terminal_symbol_names_for_parsing = [tokenType_to_terminal(t["prop"]) for t in toks_for_parsing if t["prop"] != tokenType.EOF] + ["EOF"]
-        input(terminal_symbol_names_for_parsing)
-        # 确保 get_id 能正确处理这些名字
+
         try:
             terminal_ids_for_parsing = [self.get_id(s_name) for s_name in terminal_symbol_names_for_parsing]
         except ValueError as e:
-             # 如果这里出错，通常意味着 tokenType_to_terminal 返回的名字不在 self.terminal_symbols 里
-             # 或者 "EOF" 不在。EOF 必须在 self.terminal_symbols 中。
             return {"error": f"符号ID查找失败: {str(e)}。请检查终结符定义。", "loc": None}
-
 
         # 分析栈，每个元素是 {'state': state_id, 'tree': syntax_tree_node, 'attrs': semantic_attributes}
         # 初始时，栈底是状态0，EOF的tree和attrs是象征性的
@@ -516,29 +506,23 @@ class Parser:
             action, value = self.action_table[current_state][lookahead_symbol_id]
             
             if action == ACTION_S:  # 移进 (Shift)
-                # 获取当前实际的token对象 (来自toks_for_parsing)
                 current_actual_token_obj = toks_for_parsing[current_token_idx]
                 
-                # --- 修改：为移进的终结符创建初始语义属性 ---
                 initial_terminal_attrs = {
                     'token_obj': current_actual_token_obj, # 存储原始token对象，包含content, prop, loc
-                    'code': [] # 终结符本身不产生代码序列
+                    'code': [] # 终结符本身不产生新的四元式序列
                 }
-                # 为特定类型的终结符（如数字、标识符）设置初始的 type 和 place
+                # 设置初始的 type 和 place
                 if current_actual_token_obj['prop'] == tokenType.INTEGER_CONSTANT:
-                    initial_terminal_attrs['type'] = 'i32' # 根据你的语言定义
+                    initial_terminal_attrs['type'] = 'i32'
                     try:
                         initial_terminal_attrs['place'] = int(current_actual_token_obj['content'])
                     except ValueError:
                         # 理论上词法分析阶段应该保证这是个有效整数
                         initial_terminal_attrs['place'] = 0 # 或其他错误标记
-                        # 可以考虑在此处报告一个内部错误
+                        # TODO：可以考虑在此处报告一个内部错误
                 elif current_actual_token_obj['prop'] == tokenType.IDENTIFIER:
                     initial_terminal_attrs['name'] = current_actual_token_obj['content']
-                    # IDENTIFIER 的 type 和 place 通常在规约时确定
-
-                # 其他终结符，如关键字、操作符，主要通过其 token_obj 来识别
-                # --- 结束修改 ---
 
                 stack.append({
                     "state": value, # value 是移进后的新状态
@@ -549,6 +533,8 @@ class Parser:
 
             elif action == ACTION_R:  # 规约 (Reduce)
                 production_to_reduce = self.productions[value] # value 是产生式编号
+                # print(production_to_reduce.from_id)
+                # input(production_to_reduce.to_ids)
                 
                 children_syntax_nodes = [] # 用于构造语法树
                 children_semantic_attrs = [] # 用于传递给语义分析
@@ -559,7 +545,6 @@ class Parser:
                     # 确保即使没有 'attrs' 也能安全获取，提供默认值
                     children_semantic_attrs.insert(0, popped_item.get("attrs", {'code': [], 'token_obj': popped_item.get('token_obj')}))
                 
-                # --- 新增：构造 production_rule_str ---
                 lhs_symbol_id = production_to_reduce.from_id
                 # from_id 是全局ID, 需要转换为 non_terminal_symbols 的索引
                 lhs_symbol_name = self.non_terminal_symbols[lhs_symbol_id - len(self.terminal_symbols)]
@@ -575,9 +560,8 @@ class Parser:
                             rhs_symbol_names.append(self.non_terminal_symbols[symbol_id_in_rhs - len(self.terminal_symbols)])
                 
                 production_rule_str = f"{lhs_symbol_name} -> {' '.join(rhs_symbol_names)}"
-                # --- 结束新增 ---
+                # input(production_rule_str)
 
-                # --- 新增：获取近似行号 ---
                 approx_line_num = 1 # 默认
                 # 尝试从规约的第一个子节点的token获取行号
                 if children_semantic_attrs and children_semantic_attrs[0] and children_semantic_attrs[0].get('token_obj'):
@@ -589,18 +573,22 @@ class Parser:
                      lookahead_token_for_line = toks_for_parsing[current_token_idx]
                      if lookahead_token_for_line and 'loc' in lookahead_token_for_line and 'row' in lookahead_token_for_line['loc']:
                          approx_line_num = lookahead_token_for_line['loc']['row']
-                # --- 结束新增 ---
                 
-                # --- 新增：调用语义分析调度函数 ---
                 new_lhs_attributes = {} # 初始化
                 try:
+                    # print(production_rule_str)
+                    # print(children_semantic_attrs)
+                    # input(approx_line_num)
                     new_lhs_attributes = self.semantic_analyzer.dispatch_semantic_action(
                         production_rule_str,
                         children_semantic_attrs,
                         approx_line_num
                     )
+                    # self.semantic_analyzer.print_quadruples() # 打印四元式 (调试用)
+                    # self.semantic_analyzer.print_symbol_table() # 打印符号表 (调试用)
+                    # input()
                 except SemanticError as se:
-                    # 报告语义错误并停止分析 (或收集错误并尝试继续，取决于你的策略)
+                    # 报告语义错误并停止分析
                     error_line = se.line_num if se.line_num is not None else approx_line_num
                     return {
                         "error": f"语义错误: {se.message}",
@@ -608,23 +596,21 @@ class Parser:
                         "rule": production_rule_str,
                         "semantic_error": True # 标记为语义错误
                     }
-                # --- 结束新增 ---
 
                 previous_top_state = stack[-1]["state"]
                 goto_non_terminal_id = production_to_reduce.from_id # 左部非终结符的ID
                 
                 if goto_non_terminal_id not in self.goto_table[previous_top_state]:
-                    # GOTO表中没有条目，这是语法定义或表构造的严重错误
                     return {
                         "error": f"内部错误: GOTO 表中状态 {previous_top_state} 对非终结符 {lhs_symbol_name} (ID: {goto_non_terminal_id}) 无转移。",
-                        "loc": {"row": approx_line_num, "col": "?"} # 近似位置
+                        "loc": {"row": approx_line_num, "col": "?"} 
                     }
 
                 next_state_after_reduce = self.goto_table[previous_top_state][goto_non_terminal_id]
                 
                 stack.append({
                     "state": next_state_after_reduce,
-                    "tree": { # 语法树节点
+                    "tree": {
                         "root": lhs_symbol_name,
                         "children": children_syntax_nodes,
                     },
@@ -632,18 +618,25 @@ class Parser:
                 })
 
             elif action == ACTION_ACC:  # 接受 (Accept)
-                # --- 新增：在接受时可以获取最终结果，例如四元式列表 ---
-                # final_quadruples = self.semantic_analyzer.get_quadruples()
-                # 你可以决定如何返回它们，例如包含在最终结果字典中
-                # self.semantic_analyzer.print_quadruples() # 打印四元式 (调试用)
-                # self.semantic_analyzer.print_symbol_table() # 打印符号表 (调试用)
-                # --- 结束新增 ---
-                final_tree = stack[-1]["tree"] # 最终的语法树
-                # 返回一个包含树和四元式的结构
+                final_tree = stack[-1]["tree"] 
+                final_attrs = stack[-1]["attrs"] # 这是 Program 符号的属性
+
+                # 使用 final_attrs 中聚合的 'code' 作为最终的四元式列表
+                quads_to_return = final_attrs.get('code', [])
+                
+                # 调试：打印将要返回的四元式
+                # print("\n--- Final Quads from Parser (final_attrs['code']) ---")
+                # if quads_to_return:
+                # for i, q_obj in enumerate(quads_to_return):
+                # print(f"{i:03d}: {q_obj}") # 假设 Quadruple 有 __str__
+                # else:
+                # print(" <empty>")
+                # print("----------------------------------------------------")
+
                 return {
                     "syntax_tree": final_tree,
-                    "quadruples": self.semantic_analyzer.get_quadruples(), # 添加四元式到返回结果
-                    "symbol_table_debug_print": self.semantic_analyzer.get_symbol_table_string_for_debug() # 获取符号表打印字符串
+                    "quadruples": quads_to_return, # 修改这里
+                    "symbol_table_debug_print": self.semantic_analyzer.get_symbol_table_string_for_debug()
                 }
             
             else: # 不应该发生的未知动作

@@ -32,10 +32,19 @@ if __name__ == "__main__":
         print("\nNow Parser starts...")
         result = parser.parse(tokens)
         if isinstance(result, dict) and result.get("error"):
-            print(f"语法错误：{result['error']}，位置：{result.get('loc')}")
+            print(f"{result['error']}，位置：{result.get('loc')}")
         else:
-            print("\n===== 语法树 (ASCII) =====")
-            print_tree(result)
-            visualize_tree_pyqt(result)
+            # print("\n===== 语法树 (ASCII) =====")
+            # print_tree(result['syntax_tree'])
+            # visualize_tree_pyqt(result['syntax_tree'])
+            print("\n===== 四元式 =====")
+            quadruples_list = result["quadruples"]
+            if quadruples_list:
+                for i, quad in enumerate(quadruples_list):
+                    print(f"{i:03d}: {str(quad)}") 
+            else:
+                print("没有生成四元式。")
+        
+            
     else:
         print("\nLexing failed: unknown tokens found.")
