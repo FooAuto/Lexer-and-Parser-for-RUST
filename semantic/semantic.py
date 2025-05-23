@@ -768,8 +768,17 @@ class SemanticAnalyzer:
 
     # Rule 5.4: break; continue; (and break <expr>; for loop expressions)
     def process_break_continue(self, keyword_token, expr_attrs, line_num):
-        # expr_attrs is None for 'break;' or 'continue;'
-        # expr_attrs is present for 'break <expr>;'
+        """
+        处理 break 和 continue 语句，包括 loop 表达式中的 break <expr>;
+
+        参数:
+            keyword_token: 词法单元，包含 'content' 字段（'break' 或 'continue'）
+            expr_attrs: 表达式的属性（None 表示无表达式）
+            line_num: 当前源代码行号
+
+        返回:
+            dict: 包含生成的中间代码 {'code': [...]}
+        """
         keyword = keyword_token['content']
         quads = []
 
@@ -783,32 +792,41 @@ class SemanticAnalyzer:
                 raise SemanticError("'continue' cannot have an expression.", line_num)
             self.add_quad("JUMP", result=loop_ctx['start_label'])
             quads.append(self.quadruples.pop())
+
         elif keyword == "break":
-            if loop_ctx.get('is_expr_loop'):
+            if loop_ctx.get('is_expr_loop'):  # loop 表达式中的 break <expr>
                 if not expr_attrs:
                     raise SemanticError("Loop expression 'break' must provide a value.", line_num)
+
+                # 生成 break 表达式的计算代码
                 quads.extend(expr_attrs.get('code', []))
 
-                # Infer/check loop expression type
+                # 推导或检查 loop 表达式的类型
                 if loop_ctx['expr_type'] == "unknown_inferred":
                     loop_ctx['expr_type'] = expr_attrs['type']
                 else:
                     self.check_type_compatibility(loop_ctx['expr_type'], expr_attrs['type'], line_num)
 
-                # Assign break value to the loop's result temp
+                # 赋值到 loop 表达式的 result_place
                 self.add_quad("ASSIGN", expr_attrs['place'], result=loop_ctx['result_place'])
-                quads.append(self.quadruples.pop())
-                # if 'break_assign_quads' not in loop_ctx: loop_ctx['break_assign_quads'] = []
-                # loop_ctx['break_assign_quads'].append(self.quadruples[-1])
+                assign_quad = self.quadruples.pop()
+                quads.append(assign_quad)
 
+                # 记录用于 loop 表达式收集的 break 赋值
+                if 'break_assign_quads' not in loop_ctx:
+                    loop_ctx['break_assign_quads'] = []
+                loop_ctx['break_assign_quads'].append(assign_quad)
 
-            elif expr_attrs: # break <expr> in a non-expression loop
+            elif expr_attrs:
+                # 非表达式 loop 不允许 break <expr>
                 raise SemanticError("'break <expression>;' is only allowed in 'loop' expressions.", line_num)
 
+            # 跳转到 loop 末尾
             self.add_quad("JUMP", result=loop_ctx['end_label'])
             quads.append(self.quadruples.pop())
 
         return {'code': quads}
+
 
 
     # Rule 6.2: References and Dereferences
@@ -1611,3 +1629,101 @@ class SemanticAnalyzer:
             level +=1
         output.append("--------------------")
         return "\n".join(output)
+    
+    # 3.1 if整体处理
+    def process_if_statement(self, condition_attrs, true_block_attrs, else_block_attrs=None, line_num=0):
+        """
+        处理 if 语句（或 if-else 语句），用于语义分析器中的四元式生成。
+        
+        参数:
+            condition_attrs: 条件表达式的属性字典 {'type': str, 'place': str, 'code': list}
+            true_block_attrs: if 条件成立时的代码块属性 {'code': list}
+            else_block_attrs: else 块的属性，如果没有则为 None {'code': list}
+            line_num: 当前处理的源代码行号，用于错误报告
+        返回:
+            dict: 包含生成的四元式列表：{'code': quads}
+        """
+
+        # 步骤1: 处理 if 条件部分，生成条件判断和跳转
+        if_data = self.process_if_construct_begin(condition_attrs, line_num)
+
+        # 步骤2: 添加 true block 的代码
+        quads = []
+        quads.extend(if_data['quads'])                  # 条件表达式的代码
+        quads.extend(true_block_attrs.get('code', []))  # true 分支的代码
+
+        # 步骤3: 处理 true block 结束，可能添加跳转到 end_if_label
+        if_else_data = self.process_if_true_block_end(if_data, is_if_expression=False, line_num=line_num)
+
+        # 步骤4: 如果存在 else 分支，处理 else 的开始
+        if else_block_attrs:
+            self.process_else_block_begin(if_else_data, line_num)
+            quads.append(self.quadruples.pop())  # LABEL after_if_label
+
+            quads.extend(else_block_attrs.get('code', []))  # else 分支代码
+
+        # 步骤5: 完成整个 if 结构（backpatch 所有跳转，加入最终 label）
+        result = self.process_if_else_construct_end(
+            if_else_data=if_else_data,
+            is_if_expression=False,
+            true_branch_attrs=true_block_attrs,
+            else_branch_attrs=else_block_attrs,
+            line_num=line_num
+        )
+        quads.extend(result['code'])
+
+        return {'code': quads}
+
+
+
+    # 5.1 while循环整体处理
+    def process_while_loop(self, cond_expr_attrs, body_block_attrs, line_num):
+        # 1. 开始 while 循环，生成起始 LABEL
+        loop_data = self.process_while_loop_begin(line_num)
+
+        # 2. 分析条件表达式，生成 IF_FALSE 条件跳转
+        cond_result = self.process_while_condition(cond_expr_attrs, loop_data, line_num)
+
+        # 3. 合并 while 循环体的代码
+        body_quads = body_block_attrs.get('code', [])
+
+        # 4. 生成结尾跳转回条件处 和 end_label
+        end_result = self.process_while_loop_end(loop_data, line_num)
+
+        # 5. 整合四元式代码
+        total_code = []
+        total_code.extend(loop_data['quads'])        # 开头 LABEL
+        total_code.extend(cond_result['quads'])      # 条件跳转
+        total_code.extend(body_quads)                # 循环体
+        total_code.extend(end_result['quads'])       # 尾部 JUMP 和 exit LABEL
+
+        return {'code': total_code}
+
+    # 5.3 loop语句整体处理
+    def process_loop_expression(self, body_block_attrs, line_num):
+        """
+        处理 loop 表达式形式（即作为表达式的 loop，而非语句），
+        如 Rust 中的: `let x = loop { if cond { break 42; } }`
+        """
+        # Step 1: 开始 loop 表达式
+        loop_data = self.process_loop_begin(is_expression=True, line_num=line_num)
+
+        # Step 2: 生成 loop 体中间代码
+        quads = []
+        quads.extend(loop_data['quads'])  # loop start LABEL
+        quads.extend(body_block_attrs.get('code', []))
+
+        # Step 3: 结束 loop，获取返回表达式的属性
+        result_attrs = self.process_loop_end(loop_data, line_num)
+        quads.extend(result_attrs.get('quads', []))  # end LABEL + break assign quads
+
+        # Step 4: 返回表达式类型、结果存储变量及中间代码
+        return {
+            'type': result_attrs.get('type'),
+            'place': result_attrs.get('place'),
+            'code': quads
+        }
+
+
+    # 5.4 for循环整体处理
+
