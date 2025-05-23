@@ -1725,5 +1725,6 @@ class SemanticAnalyzer:
         }
 
 
-    # 5.4 for循环整体处理
-
+    # 5.2 for循环整体处理，无process_for_loop属性
+    def process_for_loop():
+        pass
