@@ -8,6 +8,6 @@
 语法分析中调用的```dispatch_semantic_action()```函数是一个调度函数。它会根据这一次规约使用的产生式，决定调用哪个函数去处理（处理就是做语义分析）。语义具体分析的流程就类似PPT里对于各类语句的语义分析。
 
 ### TODO：
-1、测试各种情况有没有bug。因为语义规则我是让现代科技总结的。
-2、修复问题：basic.rs测试文件中helper函数被全局申明了，但是找不到。
-3、参考圣遗物可视化
+1. 函数声明在函数调用前不会出错，但是函数声明在后会导致出错找不到函数。可能需要修改`lexparser.py`，添加函数预声明功能（即预先遍历全部函数并添加到符号表中）。
+2. break、continue时loop stack永远为空。因为在翻译“WhileStatement -> WHILE Expression StatementBlock”时get_child_attrs()会提前处理loop stack中的信息，导致loop stack为空，所以处理break、continue时永远报错。
+3. “&mut a”、“&a”识别为unknown type，怀疑是词法语法分析的问题。
