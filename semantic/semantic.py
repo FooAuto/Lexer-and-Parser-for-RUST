@@ -2500,3 +2500,51 @@ class SemanticAnalyzer:
         quads.extend(end_result["quads"])
 
         return {"code": quads}
+    
+    # 7.3 条件表达式整体处理
+    def process_conditional_expression(self, cond_expr_attrs, true_block_attrs, false_block_attrs, line_num):
+        quads = []
+
+        # 获取条件表达式的中间代码和结果变量
+        quads.extend(cond_expr_attrs.get("code", []))
+        cond_place = cond_expr_attrs["place"]
+
+        # 新建标签
+        label_true = self._new_label()
+        label_false = self._new_label()
+        label_end = self._new_label()
+
+        # IF 跳转语句
+        quads.append(Quadruple("IF_GOTO", cond_place, None, label_true))
+        quads.append(Quadruple("GOTO", None, None, label_false))
+
+        # true 分支
+        quads.append(Quadruple("LABEL", None, None, label_true))
+        quads.extend(true_block_attrs.get("code", []))
+        true_val = true_block_attrs["place"]
+
+        # 使用统一的结果 temp
+        result_temp = self._new_temp()
+        quads.append(Quadruple("ASSIGN", true_val, None, result_temp))
+        quads.append(Quadruple("GOTO", None, None, label_end))
+
+        # false 分支
+        quads.append(Quadruple("LABEL", None, None, label_false))
+        quads.extend(false_block_attrs.get("code", []))
+        false_val = false_block_attrs["place"]
+        quads.append(Quadruple("ASSIGN", false_val, None, result_temp))
+
+        # 结束标签
+        quads.append(Quadruple("LABEL", None, None, label_end))
+
+        # 类型推导（简单处理：若类型不同，以 true 分支为主，可扩展类型兼容检查）
+        result_type = true_block_attrs["type"]
+        if true_block_attrs["type"] != false_block_attrs["type"]:
+            self._report_type_warning_or_error(true_block_attrs["type"], false_block_attrs["type"], line_num)
+
+        return {
+            "type": result_type,
+            "place": result_temp,
+            "code": quads,
+        }
+

@@ -1,7 +1,7 @@
 fn program_7_3(mut a:i32) {
-    let mut b=if a>0 {
-        1
+    let mut b=if a>1 {
+        2
     } else {
-        0
+        3
     };
 }
