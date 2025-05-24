@@ -383,6 +383,7 @@ class SemanticAnalyzer:
                 target_type_container, expr_attrs["type"], line_num
             )
             self.add_quad(op, arg1=expr_attrs["place"])
+            quads.append(self.quadruples[-1])
             return {
                 "type": expr_attrs["type"],
                 "place": expr_attrs["place"],
