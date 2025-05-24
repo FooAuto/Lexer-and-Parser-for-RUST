@@ -1644,36 +1644,44 @@ class SemanticAnalyzer:
             dict: 包含生成的四元式列表：{'code': quads}
         """
 
-        # 步骤1: 处理 if 条件部分，生成条件判断和跳转
+        # 1. 处理 if 条件部分
         if_data = self.process_if_construct_begin(condition_attrs, line_num)
-
-        # 步骤2: 添加 true block 的代码
         quads = []
-        quads.extend(if_data['quads'])                  # 条件表达式的代码
-        quads.extend(true_block_attrs.get('code', []))  # true 分支的代码
+        quads.extend(if_data['quads'])  # 条件表达式的代码
 
-        # 步骤3: 处理 true block 结束，可能添加跳转到 end_if_label
-        if_else_data = self.process_if_true_block_end(if_data, is_if_expression=False, line_num=line_num)
+        # 2. 添加 true block 的代码
+        quads.extend(true_block_attrs.get('code', []))
 
-        # 步骤4: 如果存在 else 分支，处理 else 的开始
+        # 3. true block 结束后，跳转到整个 if 结构的末尾
+        end_label = self._new_label()
+        self.add_quad("JUMP", result=end_label)
+        quads.append(self.quadruples.pop())
+
+        # 4. 处理 elseif/else 分支
         if else_block_attrs:
+            # 添加 elseif 或 else 的 LABEL
+            if_else_data = self.process_if_true_block_end(if_data, is_if_expression=False, line_num=line_num)
             self.process_else_block_begin(if_else_data, line_num)
-            quads.append(self.quadruples.pop())  # LABEL after_if_label
+            quads.append(self.quadruples.pop())
 
-            quads.extend(else_block_attrs.get('code', []))  # else 分支代码
+            if else_block_attrs.get('is_else_if'):
+                # 递归处理 elseif 分支
+                elseif_result = self.process_if_statement(
+                    else_block_attrs['condition'],
+                    else_block_attrs['true_block'],
+                    else_block_attrs['remaining_else_part'],
+                    line_num
+                )
+                quads.extend(elseif_result['code'])
+            else:
+                # 处理 else 分支
+                quads.extend(else_block_attrs.get('code', []))
 
-        # 步骤5: 完成整个 if 结构（backpatch 所有跳转，加入最终 label）
-        result = self.process_if_else_construct_end(
-            if_else_data=if_else_data,
-            is_if_expression=False,
-            true_branch_attrs=true_block_attrs,
-            else_branch_attrs=else_block_attrs,
-            line_num=line_num
-        )
-        quads.extend(result['code'])
+        # 5. 添加整个 if 结构的结束 LABEL
+        self.add_quad("LABEL", result=end_label)
+        quads.append(self.quadruples.pop())
 
         return {'code': quads}
-
 
 
     # 5.1 while循环整体处理
