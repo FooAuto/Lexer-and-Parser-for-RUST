@@ -56,6 +56,7 @@ class Closure:
 class Parser:
     def __init__(self, prod_file="configs/production.cfg", cache_file=".cache/parser_cache.pkl"):
         prod_file = resource_path(prod_file)
+        cache_file = resource_path(cache_file)
         try:
             prod_mtime = os.path.getmtime(prod_file)
         except OSError:
