@@ -722,6 +722,85 @@ class SemanticAnalyzer:
             raise SemanticError("Mismatched loop structure (while).", line_num)
         return {'quads': [self.quadruples[-2], self.quadruples[-1]]}
 
+    # 5.2 for <pattern> in <expression1> .. <expression2> { <block> }
+    def process_for_loop_begin(self, loop_var_name, range_start_expr, range_end_expr, line_num):
+        loop_start_label = self._new_label()  # loop body start
+        loop_end_label = self._new_label()    # loop exit
+        iter_temp = self._new_temp()          # holds current iterator value
+        start_temp = self._new_temp()
+        end_temp = self._new_temp()
+
+        quads = []
+
+        # Evaluate range start expression
+        quads.extend(range_start_expr.get('code', []))
+        self.add_quad("ASSIGN", range_start_expr['place'], result=start_temp)
+        quads.append(self.quadruples[-1])
+
+        # Evaluate range end expression
+        quads.extend(range_end_expr.get('code', []))
+        self.add_quad("ASSIGN", range_end_expr['place'], result=end_temp)
+        quads.append(self.quadruples[-1])
+
+        # Initialize iterator variable
+        self.add_quad("ASSIGN", start_temp, result=iter_temp)
+        quads.append(self.quadruples[-1])
+
+        # Define loop metadata (continue, break)
+        self.loop_stack.append({
+            'type': 'for',
+            'start_label': loop_start_label,
+            'end_label': loop_end_label,
+            'iter_temp': iter_temp,
+            'end_temp': end_temp,
+            'loop_var': loop_var_name
+        })
+
+        self.add_quad("LABEL", result=loop_start_label)
+        quads.append(self.quadruples[-1])
+
+        # if iter_temp >= end_temp goto loop_end
+        cond_temp = self._new_temp()
+        self.add_quad("GE", iter_temp, end_temp, cond_temp)
+        quads.append(self.quadruples[-1])
+        self.add_quad("IF_TRUE", cond_temp, result=loop_end_label)
+        quads.append(self.quadruples[-1])
+
+        # Assign iter_temp to loop variable
+        self.add_quad("ASSIGN", iter_temp, result=loop_var_name)
+        quads.append(self.quadruples[-1])
+
+        return {
+            'quads': quads,
+            'loop_data': self.loop_stack[-1]
+        }
+
+    def process_for_loop_end(self, loop_data, line_num):
+        quads = []
+
+        # iter_temp = iter_temp + 1
+        inc_temp = self._new_temp()
+        self.add_quad("ADD", loop_data['iter_temp'], "1", inc_temp)
+        quads.append(self.quadruples[-1])
+        self.add_quad("ASSIGN", inc_temp, result=loop_data['iter_temp'])
+        quads.append(self.quadruples[-1])
+
+        # jump back to start of loop
+        self.add_quad("JUMP", result=loop_data['start_label'])
+        quads.append(self.quadruples[-1])
+
+        # loop exit label
+        self.add_quad("LABEL", result=loop_data['end_label'])
+        quads.append(self.quadruples[-1])
+
+        # pop loop metadata
+        if self.loop_stack and self.loop_stack[-1]['type'] == 'for':
+            self.loop_stack.pop()
+        else:
+            raise SemanticError("Mismatched loop structure (for).", line_num)
+
+        return {'quads': quads}
+
     # Rule 5.3: loop <block> (and loop expression)
     def process_loop_begin(self, is_expression, line_num):
         loop_start_label = self._new_label()
@@ -1525,7 +1604,14 @@ class SemanticAnalyzer:
         elif production_rule_str == "LoopStatement -> LOOP StatementBlock": # 普通 loop 语句
             body_block_attrs = get_child_attrs(1)
             return self.process_loop_statement(body_block_attrs, line_num_approx)
-
+        ## 1..a+1
+        elif production_rule_str == "IterableStructure -> Expression DOTDOT Expression":
+            left_expr = get_child_attrs(0)
+            right_expr = get_child_attrs(2)
+            code = []
+            code.extend(left_expr.get('code', []))
+            code.extend(right_expr.get('code', []))
+            return {'left': left_expr, 'right': right_expr, 'code': code}
         # --- BlockExpression & related ---
         elif production_rule_str == "Expression -> BlockExpression":
             return get_child_attrs(0)
@@ -1734,5 +1820,26 @@ class SemanticAnalyzer:
 
 
     # 5.2 for循环整体处理，无process_for_loop属性
-    def process_for_loop():
-        pass
+    def process_for_loop(self, loop_var_decl_attrs, iterable_attrs, body_block_attrs, line_num):
+        quads = []
+
+        # 提取循环变量名，例如 i
+        loop_var_name = loop_var_decl_attrs['name']
+
+        # 提取区间左右表达式，如 a..b
+        range_start_expr = iterable_attrs['left']
+        range_end_expr = iterable_attrs['right']
+
+        # 开始 for 循环（初始化 start/end/iter_temp 和跳转逻辑）
+        begin_result = self.process_for_loop_begin(loop_var_name, range_start_expr, range_end_expr, line_num)
+        quads.extend(begin_result['quads'])
+
+        # 插入循环体 block 的四元式
+        quads.extend(body_block_attrs.get('code', []))
+
+        # 结束 for 循环（++i, 跳转到开始，插入结束标签）
+        end_result = self.process_for_loop_end(begin_result['loop_data'], line_num)
+        quads.extend(end_result['quads'])
+
+        return {'code': quads}
+
