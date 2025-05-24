@@ -441,38 +441,28 @@ class SemanticAnalyzer:
 
     # Rule 2.2: <assignable> = <expr> ;
     def process_assignment(self, assignable_attrs, expr_attrs, line_num):
-        # assignable_attrs: {'name': str, 'type': type, 'is_lvalue': True, 'is_mutable': bool, 'place': var_name_or_addr_calc, 'code': []}
-        # expr_attrs: {'type': type, 'place': temp_var_or_const, 'code': []}
         quads = []
-        quads.extend(
-            assignable_attrs.get("code", [])
-        )  # Code for LHS (e.g., array index calc)
-        quads.extend(expr_attrs.get("code", []))  # Code for RHS expression
+        quads.extend(assignable_attrs.get("code", []))
+        quads.extend(expr_attrs.get("code", []))
 
-        lvalue_entry = self.lookup_symbol(
-            assignable_attrs["name"], line_num
-        )  # For simple vars
-
-        if not assignable_attrs.get(
-            "is_lvalue", False
-        ):  # Should be caught by grammar if <assignable> is correct
+        if not assignable_attrs.get("is_lvalue", False):
             raise SemanticError(
                 f"Cannot assign to non-lvalue '{assignable_attrs.get('name', 'expression')}'.",
                 line_num,
             )
 
-        # For simple variable assignment:
-        if lvalue_entry.sym_type in [SymbolType.VARIABLE, SymbolType.PARAMETER]:
-            if (
-                not lvalue_entry.is_mutable and lvalue_entry.initialized
-            ):  # Allow first init of let x;
+        is_simple_var = assignable_attrs.get("sym_type") in [SymbolType.VARIABLE, SymbolType.PARAMETER]
+        is_element = assignable_attrs.get("sym_type") in [SymbolType.ARRAY, SymbolType.TUPLE]
+
+        if is_simple_var:
+            lvalue_entry = self.lookup_symbol(assignable_attrs["name"], line_num)
+
+            if not lvalue_entry.is_mutable and lvalue_entry.initialized:
                 raise SemanticError(
                     f"Cannot assign to immutable variable '{lvalue_entry.name}'.",
                     line_num,
                 )
 
-            # Type check:
-            # If lvalue_entry.data_type is 'unknown_inferred', update it.
             if lvalue_entry.data_type == "unknown_inferred":
                 lvalue_entry.data_type = expr_attrs["type"]
             else:
@@ -482,16 +472,10 @@ class SemanticAnalyzer:
 
             lvalue_entry.initialized = True
 
-        # For array/tuple element assignment, mutability and type checks are more complex:
-        # assignable_attrs['type'] here would be the *element* type.
-        # assignable_attrs['base_mutable'] would be needed for array/tuple itself.
-        elif assignable_attrs.get("sym_type") in [
-            SymbolType.ARRAY,
-            SymbolType.TUPLE,
-        ]:  # Element assignment
+        elif is_element:
             if not assignable_attrs.get("base_is_mutable") and not assignable_attrs.get(
                 "is_temp_lvalue", False
-            ):  # is_temp_lvalue for *(&mut arr)[idx]
+            ):
                 raise SemanticError(
                     f"Cannot assign to element of immutable '{assignable_attrs['name']}'.",
                     line_num,
@@ -499,10 +483,13 @@ class SemanticAnalyzer:
             self.check_type_compatibility(
                 assignable_attrs["type"], expr_attrs["type"], line_num
             )
+        else:
+            raise SemanticError(
+                f"Unknown assignable type: {assignable_attrs}", line_num
+            )
 
         self.add_quad("ASSIGN", expr_attrs["place"], result=assignable_attrs["place"])
-        quads.append(self.quadruples.pop())  # Add the assign quad to the local list
-
+        quads.append(self.quadruples.pop())
         return {"code": quads}
 
     # Rule 2.3: let <var_decl_internal> : <type> = <expr> ;
