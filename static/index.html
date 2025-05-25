@@ -31,6 +31,97 @@
     background: var(--header-bg);
     border-bottom: 1px solid var(--border);
   }
+  .error-display {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(255, 77, 79, 0.08);
+    color: #ff4d4f;
+    font-weight: bold;
+    font-size: 1.2em;
+    z-index: 10;
+    border: 2px solid #ff4d4f;
+    border-radius: 4px;
+  }
+
+  /* 保留原有的 token 颜色样式 */
+  .token-LET,
+  .token-FN,
+  .token-FOR,
+  .token-IN,
+  .token-WHILE,
+  .token-IF,
+  .token-ELSE,
+  .token-RETURN,
+  .token-MUT,
+  .token-LOOP,
+  .token-BREAK,
+  .token-CONTINUE {
+    color: #569cd6;
+    font-weight: bold;
+  }
+  .token-IDENTIFIER {
+    color: #eebb2f;
+  }
+  .token-MACRO_IDENTIFIER {
+    color: #c586c0;
+  }
+  .token-I32 {
+    color: #4ec9b0;
+  }
+  .token-INTEGER_CONSTANT,
+  .token-FLOATING_POINT_CONSTANT {
+    color: #b5cea8;
+  }
+  .token-CHAR_CONSTANT,
+  .token-STRING_CONSTANT {
+    color: #ce9178;
+  }
+  .token-S_COMMENT,
+  .token-LM_COMMENT,
+  .token-RM_COMMENT {
+    color: #6a9955;
+    font-style: italic;
+  }
+  .token-ASSIGN,
+  .token-PLUS,
+  .token-MINUS,
+  .token-MULT,
+  .token-DIV,
+  .token-EQ,
+  .token-GT,
+  .token-GE,
+  .token-LT,
+  .token-LE,
+  .token-NEQ,
+  .token-LPAREN,
+  .token-RPAREN,
+  .token-LBRACE,
+  .token-RBRACE,
+  .token-LBRACK,
+  .token-RBRACK,
+  .token-SEMICOLON,
+  .token-COLON,
+  .token-COMMA,
+  .token-ARROW,
+  .token-DOT,
+  .token-DOTDOT,
+  .token-AMP {
+    color: #e466f5;
+  }
+  .token-UNKNOWN {
+    background-color: rgba(244, 67, 54, 0.2) !important;
+    color: #f44747 !important;
+    text-decoration: wavy underline;
+  }
+  .token-EOF {
+    color: transparent;
+  }
+    </style>
+  </head>
 
   .table-btn {
     background: none;
@@ -478,6 +569,16 @@
         </div>
       </div>
 
+        <!-- 内容显示区域 -->
+        <div id="content-display">
+          <!-- 新增错误提示框 -->
+          <div id="error-display" class="error-display" style="display: none">
+            代码有误，无法解析
+          </div>
+
+          <!-- 语法树 -->
+          <div id="syntax-tree" class="content-pane active">
+            <svg id="tree"></svg>
       <!-- 内容显示区域 -->
       <div id="content-display">
         <!-- 新增错误提示框 -->
