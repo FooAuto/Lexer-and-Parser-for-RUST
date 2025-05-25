@@ -499,7 +499,7 @@ class Parser:
                             rhs_symbol_names.append(self.non_terminal_symbols[symbol_id_in_rhs - len(self.terminal_symbols)])
                 
                 production_rule_str = f"{lhs_symbol_name} -> {' '.join(rhs_symbol_names)}"
-                print(f"DEBUG: Reducing by rule: {production_rule_str}") # 添加这行来进行调试
+                # print(f"DEBUG: Reducing by rule: {production_rule_str}") # 添加这行来进行调试
 
 
                 approx_line_num = 1 # 默认
