@@ -288,33 +288,265 @@
       </div>
     </div>
 
-    <!-- 右侧面板 -->
-    <div id="right-panel">
-      <div id="right-content">
-        <!-- 选项卡选择器 -->
-        <div id="tab-selector">
-          <select id="display-selector">
-            <option value="syntax-tree">Syntax Tree</option>
-            <option value="intermediate-code">Intermediate Code</option>
-          </select>
+  <!-- 右侧面板 -->
+  <div id="right-panel">
+    <div id="right-content">
+      <!-- 选项卡选择器 -->
+      <div id="tab-selector">
+        <select id="display-selector">
+          <option value="syntax-tree">Syntax Tree</option>
+          <option value="intermediate-code">Intermediate Code</option>
+          <option value="parsing-tables">Parsing Tables</option> <!-- 新增选项 -->
+        </select>
+        <div class="tab-controls">
           <button id="zoom-in" title="Zoom In">＋</button>
           <button id="zoom-out" title="Zoom Out">－</button>
         </div>
+      </div>
 
-        <!-- 内容显示区域 -->
-        <div id="content-display">
-          <!-- 语法树 -->
-          <div id="syntax-tree" class="content-pane active">
-            <svg id="tree"></svg>
+      <!-- 内容显示区域 -->
+      <div id="content-display">
+        <!-- 语法树 -->
+        <div id="syntax-tree" class="content-pane active">
+          <svg id="tree"></svg>
+        </div>
+
+        <!-- 中间代码 -->
+        <div id="intermediate-code" class="content-pane">
+          <pre id="quadruples"></pre>
+        </div>
+
+        <!-- 新增解析表容器 -->
+        <div id="parsing-tables" class="content-pane">
+          <div class="table-switcher">
+            <button class="table-btn active" data-table-type="action">Action Table</button>
+            <button class="table-btn" data-table-type="goto">Goto Table</button>
           </div>
-
-          <!-- 中间代码 -->
-          <div id="intermediate-code" class="content-pane">
-            <pre id="quadruples"></pre>
+          <div class="tables-wrapper">
+            <div id="action-table" class="parse-table active"></div>
+            <div id="goto-table" class="parse-table"></div>
           </div>
         </div>
       </div>
     </div>
+  </div>
+
+  <style>
+    /* 新增样式 */
+    .tab-controls {
+      display: inline-block;
+      margin-left: 10px;
+    }
+
+    .table-switcher {
+      padding: 8px;
+      background: var(--header-bg);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .table-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--fg-main);
+      padding: 4px 12px;
+      margin-right: 4px;
+      cursor: pointer;
+      border-radius: 4px;
+      transition: all 0.2s;
+    }
+
+    .table-btn.active {
+      background: var(--node-color);
+      color: var(--bg-main);
+      border-color: var(--node-color);
+    }
+
+    .tables-wrapper {
+      flex: 1;
+      overflow: auto;
+      position: relative;
+      height: calc(100% - 40px);
+    }
+
+    .parse-table {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      padding: 10px;
+      display: none;
+      overflow: auto;
+    }
+
+    .parse-table.active {
+      display: block;
+    }
+
+    .parse-table table {
+      border-collapse: collapse;
+      width: max-content;
+      min-width: 100%;
+      font-family: monospace;
+      font-size: 12px;
+      background: var(--bg-main);
+    }
+
+    .parse-table th {
+      background: var(--header-bg);
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      border: 1px solid var(--border);
+      padding: 6px 10px;
+      color: var(--fg-main);
+    }
+
+    .parse-table td {
+      border: 1px solid var(--border);
+      padding: 4px 8px;
+      text-align: center;
+      white-space: nowrap;
+      color: var(--fg-main);
+    }
+
+    .parse-table .shift {
+      color: #4ec9b0;
+    }
+
+    .parse-table .reduce {
+      color: #c586c0;
+    }
+
+    .parse-table .accept {
+      color: #569cd6;
+      font-weight: bold;
+    }
+  </style>
+
+  <script>
+    // 新增表格处理逻辑
+    let parsingTables = { action: null, goto: null };
+
+    // 表格切换功能
+    document.querySelectorAll('.table-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tableType = btn.dataset.tableType;
+        
+        // 切换按钮状态
+        document.querySelectorAll('.table-btn').forEach(b => 
+          b.classList.remove('active'));
+        btn.classList.add('active');
+        
+        // 切换表格显示
+        document.querySelectorAll('.parse-table').forEach(t => 
+          t.classList.remove('active'));
+        document.getElementById(`${tableType}-table`).classList.add('active');
+      });
+    });
+
+    // 生成解析表函数
+    function renderParseTable(containerId, tableData, type) {
+      const container = document.getElementById(containerId);
+      container.innerHTML = '';
+
+      if (!tableData || Object.keys(tableData).length === 0) {
+          container.textContent = `No ${type} table available`;
+          return;
+      }
+
+      // 收集所有符号（包括数字键）
+      const symbols = new Set();
+      Object.values(tableData).forEach(entries => {
+          Object.keys(entries).forEach(symbol => {
+              symbols.add(symbol);
+          });
+      });
+      
+      // 将符号转换为数字并排序
+      const sortedSymbols = Array.from(symbols)
+          .map(Number)
+          .sort((a, b) => a - b)
+          .map(String); // 转换回字符串以便作为键使用
+
+      // 创建表格元素
+      const table = document.createElement('table');
+      const thead = document.createElement('thead');
+      const tbody = document.createElement('tbody');
+
+      // 创建表头
+      const headerRow = document.createElement('tr');
+      headerRow.appendChild(createCell('th', 'State'));
+      
+      sortedSymbols.forEach(symbol => {
+          headerRow.appendChild(createCell('th', symbol));
+      });
+      thead.appendChild(headerRow);
+
+      // 创建表格内容
+      Object.entries(tableData)
+          .sort(([a], [b]) => Number(a) - Number(b)) // 按状态编号排序
+          .forEach(([state, actions]) => {
+              const row = document.createElement('tr');
+              row.appendChild(createCell('td', state));
+
+              sortedSymbols.forEach(symbol => {
+                  const action = actions[symbol] || '';
+                  const cell = createCell('td', action);
+
+                  if (type === 'action') {
+                      if (action.startsWith('shift')) {
+                          cell.classList.add('shift');
+                          cell.textContent = `s${action.split(' ')[1]}`; // 简化为"s78"格式
+                      } else if (action.startsWith('reduce')) {
+                          cell.classList.add('reduce');
+                          cell.textContent = `r${action.split(' ')[1]}`; // 简化为"r11"格式
+                      } else if (action === 'accept') {
+                          cell.classList.add('accept');
+                          cell.textContent = 'acc'; // 简化为"acc"
+                      }
+                  } else if (type === 'goto') {
+                      // GOTO表通常只包含数字，不需要特殊处理
+                      if (action) {
+                          cell.textContent = action;
+                      }
+                  }
+
+                  row.appendChild(cell);
+              });
+
+              tbody.appendChild(row);
+          });
+
+      table.appendChild(thead);
+      table.appendChild(tbody);
+      container.appendChild(table);
+  }
+
+  function createCell(tag, content) {
+    const cell = document.createElement(tag);
+    cell.textContent = content;
+    return cell;
+  }
+
+
+    function createCell(tag, content) {
+      const cell = document.createElement(tag);
+      cell.textContent = content;
+      return cell;
+    }
+
+    
+    // 监听选项卡切换事件
+    displaySelector.addEventListener('change', function() {
+      if (this.value === 'parsing-tables' && parsingTables.action) {
+        document.getElementById('action-table').classList.add('active');
+        document.getElementById('goto-table').classList.remove('active');
+        document.querySelector(`.table-btn[data-table-type="action"]`)
+          .classList.add('active');
+        document.querySelector(`.table-btn[data-table-type="goto"]`)
+          .classList.remove('active');
+      }
+    });
+  </script>
 
     <script>
       // 主题切换
@@ -518,8 +750,15 @@
           errorInfo.textContent = "0 errors, 0 warnings";
           errorInfo.style.color = "inherit";
 
+          // ✅ 渲染解析表（action 和 goto）
+          parsingTables = {
+            action: data.action || {},
+            goto: data.goto || {}
+          };
+          renderParseTable("action-table", parsingTables.action, "action");
+          renderParseTable("goto-table", parsingTables.goto, "goto");
+
           // 确保语法树区域是SVG元素
-          const syntaxTreeEl = document.getElementById("syntax-tree");
           if (!syntaxTreeEl.querySelector("svg")) {
             syntaxTreeEl.innerHTML = '<svg id="tree"></svg>';
           }
@@ -540,7 +779,6 @@
           }
 
           // 强制更新中间代码显示
-          const quadruplesEl = document.getElementById("quadruples");
           quadruplesEl.textContent = ""; // 先清空
 
           if (data.quadruples && data.quadruples.length > 0) {
@@ -563,6 +801,6 @@
 
       // 初次渲染
       parseCode();
-    </script>
+          </script>
   </body>
 </html>
