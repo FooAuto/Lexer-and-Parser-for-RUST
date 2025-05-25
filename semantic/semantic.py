@@ -1127,36 +1127,33 @@ class SemanticAnalyzer:
 
     def process_loop_end(self, loop_data, line_num):
         loop_ctx = loop_data["loop_ctx"]
-        if not loop_ctx.get("is_expr_loop"):  # Infinite loop unless break
+        
+        quads_added_by_this_func = []
+
+        if not loop_ctx.get("is_expr_loop"):
             self.add_quad("JUMP", result=loop_ctx["start_label"])
+            quads_added_by_this_func.append(self.quadruples.pop())
 
         self.add_quad("LABEL", result=loop_ctx["end_label"])
+        quads_added_by_this_func.append(self.quadruples.pop())
 
-        if self.loop_stack and self.loop_stack[-1]["type"] == "loop":
-            self.loop_stack.pop()
-        else:
-            raise SemanticError("Mismatched loop structure (loop).", line_num)
+        if not (self.loop_stack and \
+                self.loop_stack[-1]["type"] == "loop" and \
+                self.loop_stack[-1]["start_label"] == loop_ctx["start_label"]):
+            raise SemanticError("Mismatched loop structure (loop exit). Incorrect loop context on stack.", line_num)
+        self.loop_stack.pop()
 
-        result_attrs = {"quads": [self.quadruples[-1]]}
+        result_attrs = {"quads": quads_added_by_this_func}
+
         if loop_ctx.get("is_expr_loop"):
-            if loop_ctx["expr_type"] == "unknown_inferred":  # No break <expr> found
-                # This might be an error or a diverging loop (type '!')
-                # For simplicity, let's call it an error if no break <val> determines the type.
-                # Or, if it's allowed to be a diverging loop, its type could be special.
-                # PDF: "the types of their expressions must all be identical. This common type becomes the return type of the loop expression."
-                # This implies at least one break <expr> is expected if it's used as an expression.
-                raise SemanticError(
-                    "Loop expression lacks a 'break <value>;' to determine its type.",
-                    line_num,
-                )
-            result_attrs["type"] = loop_ctx["expr_type"]
-            result_attrs["place"] = loop_ctx[
-                "result_place"
-            ]  # This place should be assigned by 'break val' quads
-            if loop_ctx.get(
-                "break_assign_quads"
-            ):  # These would be ASSIGN from break <val> to result_place
-                result_attrs["quads"].extend(loop_ctx["break_assign_quads"])
+            if loop_ctx["expr_type"] == "unknown_inferred":
+                result_attrs["type"] = "void" 
+                result_attrs["place"] = None
+            else:
+                result_attrs["type"] = loop_ctx["expr_type"]
+                result_attrs["place"] = loop_ctx["result_place"]
+        else: 
+            result_attrs["type"] = "void" 
 
         return result_attrs
 
@@ -1460,6 +1457,20 @@ class SemanticAnalyzer:
             quads.append(self.quadruples.pop())
 
         return {"type": final_tuple_type, "place": tuple_place, "code": quads}
+
+    def process_loop_statement(self, body_block_attrs, line_num):
+        loop_data_from_begin = self.process_loop_begin(is_expression=False, line_num=line_num)
+
+        all_quads = []
+        all_quads.extend(loop_data_from_begin.get("quads", []))
+        all_quads.extend(body_block_attrs.get("code", []))
+
+        attrs_from_end = self.process_loop_end(loop_data_from_begin, line_num)
+        all_quads.extend(attrs_from_end.get("quads", []))
+
+        return {"code": all_quads, "type": "void"}
+
+
 
     def get_quadruples(self):
         return self.quadruples

@@ -4,8 +4,8 @@ import sys
 import re
 from lexer.token import tokenType
 from lexer.token import tokenType_to_terminal
-from semantic.semantic import SemanticAnalyzer, SemanticError # 导入 SemanticAnalyzer 和 SemanticError
-from utils.utils import * # 你的 utils 导入
+from semantic.semantic import SemanticAnalyzer, SemanticError
+from utils.utils import * 
 
 
 # Action types
@@ -91,14 +91,7 @@ class Parser:
         # 2. 否则按原逻辑计算
         self.terminal_symbols = [t.name for t in sorted(
             tokenType, key=lambda x: x.value)]
-        # 确保 epsilon 是第一个非终结符（如果你的语法定义了它）
-        # 你的 production.txt 没有显式定义 epsilon 为非终结符，而是直接用 "epsilon" 字符串
-        # 但你的 read_productions 逻辑似乎是把 "epsilon" 作为一个特殊的右部符号处理，
-        # 而不是一个非终结符。SLR/LALR 通常不需要 epsilon 在非终结符列表。
-        # S' (增广开始符号) 会在 find_gos 中自动添加。
-        # 你的 non_terminal_symbols 列表会在 read_productions 中根据实际的产生式左部填充。
-        # 初始时，可以为空，或者只包含一个占位符（如果你的 get_id 逻辑依赖非空）。
-        # 根据你的 read_productions，它会动态添加。
+
         self.non_terminal_symbols = [] # 将在 read_productions 中填充
         self.productions = []
         self.firsts = []
@@ -133,22 +126,12 @@ class Parser:
         raise ValueError(f"Unknown symbol: {symbol}")
 
     def read_productions(self, filename="configs/production.cfg"):
-        # 此函数需要调整以正确处理 production.txt 的格式
-        # 特别是，它不使用 "|" 分隔右部，每个产生式占一行。
-        # 并且，它需要首先收集所有在产生式左部出现的非终结符。
-        
-        temp_productions = [] # 临时存储解析出的产生式行
-        # 第一遍：收集所有非终结符名称，并存储产生式行
-        # 确保 "epsilon" 如果被用作非终结符（通常不是），在这里处理。
-        # 你的语法中 "epsilon" 是一个右部符号。
-        # self.non_terminal_symbols = [] # 重置，确保顺序正确
+        temp_productions = [] 
 
         try:
             with open(filename, "r", encoding="utf-8") as fin:
                 raw_lines = fin.readlines()
 
-            # 预处理行，跳过注释，收集左部符号
-            # 你的 production.txt 的注释以 "#" 开头，但第一行 "" 需要特殊处理
             processed_lines = []
             for i, line_content in enumerate(raw_lines):
                 line_content = line_content.strip()
@@ -167,10 +150,6 @@ class Parser:
                     if left_symbol not in self.non_terminal_symbols:
                         self.non_terminal_symbols.append(left_symbol)
             
-            # 现在 self.non_terminal_symbols 包含了所有在左部出现的非终结符
-            # 按照它们在文件中首次出现的顺序。
-            # Program -> DeclarationList 这个规则的 Program 应该是第一个
-
             # 第二遍：正式创建 Production 对象
             for line_content in processed_lines:
                 m = re.match(r"\s*([^->]+)\s*->\s*(.*)", line_content)
@@ -198,12 +177,7 @@ class Parser:
                         else:
                             # 右部的非终结符也必须在 self.non_terminal_symbols 中
                             if sym_name not in self.non_terminal_symbols:
-                                # 这种情况理论上不应该发生，因为上面已经收集了所有左部
-                                # 如果右部出现了一个新的非终结符，说明语法定义可能有问题
-                                # 或者它应该先在某个产生式的左部定义。
-                                # 为了健壮性，可以考虑添加，但这可能打乱顺序。
-                                # 或者严格要求所有非终结符都必须先出现在左部。
-                                # 你的原始代码是会动态添加的，我们保持这个行为。
+
                                 self.non_terminal_symbols.append(sym_name)
                             tid = self.non_terminal_symbols.index(sym_name) + len(self.terminal_symbols)
                         p.to_ids.append(tid)
@@ -218,36 +192,21 @@ class Parser:
         NT_COUNT = len(self.non_terminal_symbols) # 非终结符的数量
         
         self.firsts = []
-        # 为终结符初始化 FIRST集
         for i in range(T): # 0 到 T-1 是终结符
             self.firsts.append({i}) 
         
-        # 为非终结符初始化空的 FIRST集
-        # 非终结符的ID范围是 T 到 T + NT_COUNT - 1
-        # 所以 firsts 列表的总长度应该是 T + NT_COUNT
         for _ in range(NT_COUNT):
             self.firsts.append(set())
-
-        # epsilon 的 ID (如果将其视为一个特殊的终结符，通常是T)
-        # 在你的代码中，epsilon 不是一个符号ID，而是通过 p.to_ids 为空来表示
-        # find_firsts_alpha 中的 T 代表 epsilon。
-        # 我们需要一个一致的方式来表示epsilon，通常用一个特殊的ID，比如 T。
-        # 但你的 firsts 列表的索引是符号ID，所以 firsts[X] 是符号X的FIRST集。
-        # 如果 X 可以推导出 epsilon, 则 T (作为epsilon的代表) 在 firsts[X] 中。
 
         changed = True
         while changed:
             changed = False
             for p in self.productions:
                 A = p.from_id # A 是一个非终结符的ID
-                # 注意 A 的ID是相对于整个符号表的（终结符+非终结符）
-                # firsts 列表也是按这个ID索引的
 
                 nullable_rhs = True
                 for X_id in p.to_ids: # X_id 是右部符号的ID
-                    # 加入 FIRST(X) \ {epsilon} 到 FIRST(A)
-                    # firsts[X_id] 是符号X的FIRST集
-                    # T 是epsilon的代表
+
                     for t_id in self.firsts[X_id]:
                         if t_id != T: # t_id 不是 epsilon
                             if t_id not in self.firsts[A]:
@@ -309,22 +268,10 @@ class Parser:
                     # 对于每个产生式 B -> gamma
                     for j, p_B_gamma in enumerate(self.productions):
                         if p_B_gamma.from_id == B_id: # 找到了 B -> gamma
-                            # 为其创建新项 [B -> .gamma, la] for each la in lookahead_for_B_rules
                             for la_id in lookahead_for_B_rules:
-                                # la_id 必须是终结符ID，或者T (epsilon) 如果find_firsts_alpha会返回它
-                                # 但展望符应该是实际的终结符，而不是epsilon的代表T
+
                                 if la_id == T : # 如果 FIRST(beta la) 包含 epsilon，则展望符是原展望符 it.terminal_id
-                                     # 这已经在 find_firsts_alpha(beta + [it.terminal_id], ...) 中处理了
-                                     # lookahead_for_B_rules 应该只包含终结符ID
-                                     # 确保 find_firsts_alpha 的第二个参数是展望符集合
-                                     # 并且它填充的ID是终结符ID
-                                     # 你的 find_firsts_alpha 逻辑是正确的，它会将 T 加入，
-                                     # 但对于展望符，我们只关心实际的终结符。
-                                     # 然而，Item 的 terminal_id 应该就是实际的展望终结符。
-                                     # find_firsts_alpha(beta + [it.terminal_id], la_set)
-                                     # la_set 中如果包含T，意味着 FIRST(beta)包含epsilon，此时原展望符 it.terminal_id 有效。
-                                     # 如果不包含T，则展望符是 FIRST(beta)中的终结符。
-                                     # 逻辑上 la_set 就是正确的展望符集合。
+
                                      pass
 
 
@@ -344,10 +291,7 @@ class Parser:
         # S' 的 ID
         s_prime_id = self.non_terminal_symbols.index("S'") + len(self.terminal_symbols)
         aug_prod.from_id = s_prime_id
-        
-        # 假设原始文法的开始符号是 self.productions[0] 的左部
-        # 你的 production.txt 第一行 "Program -> DeclarationList" 定义了开始符号 Program
-        # 所以 S' -> Program
+
         original_start_symbol_name = self.productions[0].from_id # 这是 Program 的ID
         aug_prod.to_ids = [original_start_symbol_name]
         self.productions.append(aug_prod)
@@ -432,12 +376,7 @@ class Parser:
                         if item.terminal_id in self.action_table[i] and \
                            self.action_table[i][item.terminal_id] != (ACTION_R, item.production_id):
                             existing_action, existing_val = self.action_table[i][item.terminal_id]
-                            # print(f"冲突在状态 {i}, 符号 {self.terminal_symbols[item.terminal_id]}: 已有 {ActionType[existing_action]}{existing_val}, 新的 r{item.production_id}")
-                            # LALR(1) 冲突解决：优先移进 (如果存在移进)
-                            # 你的代码是直接覆盖，SLR/LALR通常在构造时就确定优先级
-                            # 如果是r/r冲突，取决于产生式顺序（通常选择编号小的）
-                            # 如果是s/r冲突，通常优先选择移进（需要语法设计者确认）
-                            # 此处简单覆盖
+
                             pass # 你是直接覆盖
                         self.action_table[i][item.terminal_id] = (ACTION_R, item.production_id)
                 
@@ -560,7 +499,8 @@ class Parser:
                             rhs_symbol_names.append(self.non_terminal_symbols[symbol_id_in_rhs - len(self.terminal_symbols)])
                 
                 production_rule_str = f"{lhs_symbol_name} -> {' '.join(rhs_symbol_names)}"
-                # input(production_rule_str)
+                print(f"DEBUG: Reducing by rule: {production_rule_str}") # 添加这行来进行调试
+
 
                 approx_line_num = 1 # 默认
                 # 尝试从规约的第一个子节点的token获取行号
