@@ -452,10 +452,10 @@ class SemanticAnalyzer:
                 line_num,
             )
 
-        is_simple_var = assignable_attrs.get("sym_type") in [SymbolType.VARIABLE, SymbolType.PARAMETER]
-        is_element = assignable_attrs.get("sym_type") in [SymbolType.ARRAY, SymbolType.TUPLE]
+        lvalue_handled = False
 
-        if is_simple_var:
+        # 情况1: 简单变量赋值 (例如: x = 10)
+        if assignable_attrs.get("sym_type") in [SymbolType.VARIABLE, SymbolType.PARAMETER]:
             lvalue_entry = self.lookup_symbol(assignable_attrs["name"], line_num)
 
             if not lvalue_entry.is_mutable and lvalue_entry.initialized:
@@ -470,27 +470,46 @@ class SemanticAnalyzer:
                 self.check_type_compatibility(
                     lvalue_entry.data_type, expr_attrs["type"], line_num
                 )
-
+            
             lvalue_entry.initialized = True
 
-        elif is_element:
-            if not assignable_attrs.get("base_is_mutable") and not assignable_attrs.get(
-                "is_temp_lvalue", False
-            ):
-                raise SemanticError(
-                    f"Cannot assign to element of immutable '{assignable_attrs['name']}'.",
-                    line_num,
-                )
+            self.add_quad("ASSIGN", expr_attrs["place"], result=assignable_attrs["place"])
+            quads.append(self.quadruples.pop())
+            lvalue_handled = True
+
+        # 情况2: 向内存地址赋值 (例如: *ptr = 10, array[idx] = 10, tuple.field = 10)
+        elif assignable_attrs.get("is_lvalue_address"):
+            is_array_or_tuple_element = assignable_attrs.get("sym_type") in [SymbolType.ARRAY, SymbolType.TUPLE]
+
+            if is_array_or_tuple_element:
+                # 对于数组或元组元素，检查其基底是否可变
+                if not assignable_attrs.get("base_is_mutable"):
+                    raise SemanticError(
+                        f"Cannot assign to element of immutable base '{assignable_attrs.get('name', 'container')}'.",
+                        line_num,
+                    )
+            else: # 对于解引用，例如 *b
+                if not assignable_attrs.get("is_mutable"):
+                    raise SemanticError(
+                        f"Cannot assign to content of dereferenced immutable reference/pointer.",
+                        line_num,
+                    )
+            
             self.check_type_compatibility(
                 assignable_attrs["type"], expr_attrs["type"], line_num
             )
-        else:
+            
+            self.add_quad("STORE", expr_attrs["place"], assignable_attrs["place"])
+            quads.append(self.quadruples.pop())
+            lvalue_handled = True
+        
+        if not lvalue_handled:
+            # 左值的结构未被上述条件识别
+            original_error_msg = f"Unknown assignable type: {assignable_attrs}" # 原始错误是这个
             raise SemanticError(
-                f"Unknown assignable type: {assignable_attrs}", line_num
+                f"Internal Error: Unhandled LValue structure in assignment. Attributes: {assignable_attrs}", line_num
             )
-
-        self.add_quad("ASSIGN", expr_attrs["place"], result=assignable_attrs["place"])
-        quads.append(self.quadruples.pop())
+        
         return {"code": quads}
 
     # Rule 2.3: let <var_decl_internal> : <type> = <expr> ;
@@ -2293,6 +2312,12 @@ class SemanticAnalyzer:
         elif production_rule_str == "TupleAssignmentList -> Expression":
             expr_attrs = get_child_attrs(0)
             return {"elements": [expr_attrs], "code": expr_attrs.get("code", [])}
+        elif production_rule_str == "Factor -> AMP MUT Factor":
+            factor_to_get_address_attrs = get_child_attrs(2)
+            return self.process_reference_op("&mut", factor_to_get_address_attrs, line_num_approx)
+        elif production_rule_str == "Factor -> MULT Factor":
+            factor_to_dereference_attrs = get_child_attrs(1)
+            return self.process_reference_op("*", factor_to_dereference_attrs, line_num_approx)
         elif (
             production_rule_str
             == "TupleAssignmentList -> Expression COMMA TupleAssignmentList"
@@ -2302,7 +2327,11 @@ class SemanticAnalyzer:
             elements = [expr_attrs] + tail_list_attrs.get("elements", [])
             code = expr_attrs.get("code", []) + tail_list_attrs.get("code", [])
             return {"elements": elements, "code": code}
-        else:
+        elif production_rule_str == "Factor -> AMP Factor":
+            factor_to_get_address_attrs = get_child_attrs(1)
+            return self.process_reference_op("&", factor_to_get_address_attrs, line_num_approx)
+            
+        else: # NOT ALLOWED！！！
             print(
                 f"警告: dispatch_semantic_action 中 '{production_rule_str}' (行 ~{line_num_approx}) 未精确匹配，使用默认聚合/传递。"
             )

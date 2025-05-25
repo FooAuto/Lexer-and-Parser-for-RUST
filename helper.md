@@ -10,4 +10,3 @@
 ### TODO：
 1. 函数声明在函数调用前不会出错，但是函数声明在后会导致出错找不到函数。可能需要修改`lexparser.py`，添加函数预声明功能（即预先遍历全部函数并添加到符号表中）。
 2. break、continue时loop stack永远为空。因为在翻译“WhileStatement -> WHILE Expression StatementBlock”时get_child_attrs()会提前处理loop stack中的信息，导致loop stack为空，所以处理break、continue时永远报错。
-3. “&mut a”、“&a”识别为unknown type，怀疑是词法语法分析的问题。
