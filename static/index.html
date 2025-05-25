@@ -6,543 +6,633 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Rust Parser Playground</title>
 
-  <!-- CodeMirror 核心 -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/codemirror.min.css" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/codemirror.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/rust/rust.min.js"></script>
 
-  <!-- VSCode Light/Dark 主题 -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/theme/vscode-light.min.css" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/theme/vscode-dark.min.css" />
 
-  <!-- D3.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.2/d3.min.js"></script>
 
+  <style>
+    /* 浅/深色主题变量 */
+    :root[data-theme="light"] {
+      --bg-main: #ffffff;
+      --fg-main: #000000;
+      --border: #d4d4d4;
+      --header-bg: #f3f3f3;
+      --error-bg: #ffebee;
+      /* 更柔和的错误背景 */
+      --error-fg: #c62828;
+      /* 更深的错误前景 */
+      --editor-bg: #ffffff;
+      --gutter-bg: #f3f3f3;
+      --gutter-fg: #5a5a5a;
+      --node-color: #0064c8;
+      /* 语法树节点颜色 */
+      --node-text: #000000;
+      /* 语法树文字颜色 */
+      --link-color: #555555;
+      /* 语法树连接线颜色 */
+      --table-header-bg: #e0e0e0;
+      /* 表格头部背景 */
+      --table-row-even-bg: #f9f9f9;
+      /* 表格偶数行背景 */
+      --table-row-hover-bg: #eef6ff;
+      /* 表格行悬浮背景 */
+      --button-active-bg: #0064c8;
+      /* 激活按钮背景 */
+      --button-active-fg: #ffffff;
+      /* 激活按钮文字 */
+      --tree-hover-node: #FFA000;
+      /* 悬停节点颜色 - 浅色 */
+      --tree-hover-link: #FFA000;
+      /* 悬停连接线颜色 - 浅色 */
+      --tree-subtree-highlight: #4CAF50;
+      /* 子树高亮颜色 - 浅色 */
+    }
 
+    :root[data-theme="dark"] {
+      --bg-main: #1e1e1e;
+      --fg-main: #d4d4d4;
+      /* 调整暗色主题下的默认文字颜色 */
+      --border: #3c3c3c;
+      --header-bg: #2d2d2d;
+      --error-bg: #3e1e1e;
+      /* 更柔和的错误背景 */
+      --error-fg: #f48fb1;
+      /* 更亮的错误前景 */
+      --editor-bg: #1e1e1e;
+      /* 编辑器背景与主背景一致 */
+      --gutter-bg: #2d2d2d;
+      --gutter-fg: #858585;
+      --node-color: #4fc3f7;
+      /* 语法树节点颜色 */
+      --node-text: #d4d4d4;
+      /* 语法树文字颜色 */
+      --link-color: #6a6a6a;
+      /* 语法树连接线颜色 */
+      --table-header-bg: #333333;
+      /* 表格头部背景 */
+      --table-row-even-bg: #2c2c2c;
+      /* 表格偶数行背景 */
+      --table-row-hover-bg: #373737;
+      /* 表格行悬浮背景 */
+      --button-active-bg: #4fc3f7;
+      /* 激活按钮背景 */
+      --button-active-fg: #1e1e1e;
+      /* 激活按钮文字 */
+      --tree-hover-node: #FFCA28;
+      /* 悬停节点颜色 - 暗色 */
+      --tree-hover-link: #FFCA28;
+      /* 悬停连接线颜色 - 暗色 */
+      --tree-subtree-highlight: #81C784;
+      /* 子树高亮颜色 - 暗色 */
+    }
+
+    /* 全局布局 */
+    body {
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      overflow: hidden;
+      background: var(--bg-main);
+      color: var(--fg-main);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+    }
+
+    /* 左侧区域 */
+    #left-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 300px;
+      /* 最小宽度 */
+      border-right: 1px solid var(--border);
+    }
+
+    /* 右侧区域 */
+    #right-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 300px;
+      /* 最小宽度 */
+    }
+
+    /* 编辑器区域 */
+    #editor-container {
+      flex: 3;
+      /* 编辑器占比更大 */
+      display: flex;
+      flex-direction: column;
+      min-height: 200px;
+      /* 最小高度 */
+    }
+
+    /* 报错信息区域 */
+    #error-container {
+      flex: 1;
+      /* 报错信息占比减小 */
+      display: flex;
+      flex-direction: column;
+      border-top: 1px solid var(--border);
+      min-height: 100px;
+      /* 最小高度 */
+    }
+
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 12px;
+      /* 统一内边距 */
+      background: var(--header-bg);
+      border-bottom: 1px solid var(--border);
+      font-weight: 500;
+      /* 调整字重 */
+    }
+
+    #theme-toggle {
+      background: none;
+      border: none;
+      color: var(--fg-main);
+      cursor: pointer;
+      font-size: 1.2em;
+    }
+
+    /* CodeMirror 样式 */
+    .CodeMirror {
+      flex: 1;
+      height: auto;
+      /* 自动高度 */
+      font-size: 14px;
+      background: var(--editor-bg) !important;
+      color: var(--fg-main) !important;
+      /* CodeMirror 文字颜色 */
+    }
+
+    .CodeMirror-gutters {
+      background: var(--gutter-bg) !important;
+      border-right: 1px solid var(--border) !important;
+    }
+
+    .CodeMirror-linenumber {
+      color: var(--gutter-fg) !important;
+    }
+
+    /* 保留 CodeMirror 默认主题的注释高亮 */
+    .cm-s-vscode-light .cm-comment {
+      color: #008000;
+    }
+
+    .cm-s-vscode-dark .cm-comment {
+      color: #6A9955;
+    }
+
+
+    /* 报错信息样式 */
+    #error-info {
+      flex: 1;
+      padding: 10px;
+      /* 增加内边距 */
+      overflow-y: auto;
+      font-family: monospace;
+      white-space: pre-wrap;
+      font-size: 0.9em;
+      line-height: 1.4;
+    }
+
+    .cm-error-underline {
+      text-decoration: var(--error-fg) wavy underline;
+      /* 使用主题颜色 */
+      text-decoration-skip-ink: none;
+      /* 确保波浪线连续 */
+    }
+
+
+    /* 右侧内容区域 */
+    #right-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      /* 防止内部溢出影响布局 */
+    }
+
+    /* 右侧选项卡 */
+    #tab-selector {
+      padding: 8px 12px;
+      background: var(--header-bg);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+    }
+
+    #display-selector {
+      padding: 6px 8px;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      background: var(--bg-main);
+      color: var(--fg-main);
+      margin-right: 10px;
+    }
+
+    .tab-controls button {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--fg-main);
+      padding: 6px 10px;
+      margin-left: 5px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    /* 右侧内容显示区域 */
+    #content-display {
+      flex: 1;
+      position: relative;
+      /* 为了内部 absolute 定位的 .content-pane */
+      overflow: hidden;
+    }
+
+    .content-pane {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      display: none;
+      /* 默认隐藏 */
+      overflow: auto;
+      /* 内容超出时滚动 */
+      padding: 10px;
+      box-sizing: border-box;
+    }
+
+    .content-pane.active {
+      display: block;
+      /* 激活时显示 */
+    }
+
+    /* 主错误覆盖层 */
+    .error-display-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background-color: rgba(128, 0, 0, 0.05);
+      color: var(--error-fg);
+      font-weight: bold;
+      font-size: 1.2em;
+      z-index: 10;
+      border: 1px solid var(--error-fg);
+      border-radius: 4px;
+      text-align: center;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+
+    /* --- 语法树美化及Hover效果 CSS --- */
+    #syntax-tree-container {
+      width: 100%;
+      height: 100%;
+    }
+
+    #tree-svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+      background-color: var(--bg-main);
+      /* 设置SVG背景色 */
+    }
+
+    .link {
+      fill: none;
+      stroke: var(--link-color);
+      stroke-width: 1px;
+      stroke-opacity: 0.7;
+      transition: stroke 0.2s, stroke-width 0.2s;
+      /* 添加过渡效果 */
+    }
+
+    .node circle {
+      fill: var(--node-color);
+      stroke: var(--border);
+      stroke-width: 1.5px;
+      r: 7px;
+      transition: fill 0.2s;
+      /* 添加过渡效果 */
+    }
+
+    .node text {
+      font-size: 11px;
+      /* 调整文字大小 */
+      fill: var(--node-text);
+      text-anchor: middle;
+      dominant-baseline: central;
+      paint-order: stroke;
+      /* 让描边在填充之下 */
+      stroke: var(--bg-main);
+      /* 文字描边，用背景色制造"光晕"效果 */
+      stroke-width: 3px;
+      stroke-linecap: butt;
+      stroke-linejoin: miter;
+    }
+
+    /* 单个节点Hover效果 (可选, 如果希望与子树高亮区分或叠加) */
+    .node.node--hover circle {
+      /* 注意选择器变化，直接作用于node的g元素 */
+      fill: var(--tree-hover-node);
+      stroke: var(--tree-hover-node);
+      stroke-width: 2px;
+    }
+
+    .node.node--hover text {
+      font-weight: bold;
+    }
+
+    .link.link--hover {
+      /* 注意选择器变化 */
+      stroke: var(--tree-hover-link);
+      stroke-width: 2.5px;
+      stroke-opacity: 1;
+    }
+
+    /* 子树高亮效果 */
+    .node.subtree-highlight circle {
+      /* 作用于node的g元素 */
+      fill: var(--tree-subtree-highlight);
+      stroke-width: 2px;
+      stroke: var(--tree-subtree-highlight);
+    }
+
+    .node.subtree-highlight text {
+      font-weight: bold;
+      fill: var(--fg-main);
+      /* 可以为高亮子树的文字指定特定颜色 */
+    }
+
+    .link.subtree-highlight {
+      /* 作用于link路径 */
+      stroke: var(--tree-subtree-highlight);
+      stroke-width: 2px;
+      stroke-opacity: 1;
+    }
+
+    /* --- 语法树 CSS 结束 --- */
+
+
+    /* 中间代码/四元式表格样式 */
+    #quadruples-container {
+      width: 100%;
+      height: 100%;
+      overflow: auto;
+    }
+
+    .quadruple-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: monospace;
+      font-size: 0.85em;
+      table-layout: auto;
+    }
+
+    .quadruple-table th,
+    .quadruple-table td {
+      padding: 8px 10px;
+      text-align: left;
+      border: 1px solid var(--border);
+      white-space: pre;
+    }
+
+    .quadruple-table th {
+      background-color: var(--table-header-bg);
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+
+    .quadruple-table tr:nth-child(even) {
+      background-color: var(--table-row-even-bg);
+    }
+
+    .quadruple-table tr:hover {
+      background-color: var(--table-row-hover-bg);
+    }
+
+    /* 解析表示样 */
+    .table-switcher {
+      padding: 8px 12px;
+      background: var(--header-bg);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .table-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--fg-main);
+      padding: 6px 12px;
+      margin-right: 5px;
+      cursor: pointer;
+      border-radius: 4px;
+      transition: background-color 0.2s, color 0.2s;
+    }
+
+    .table-btn.active {
+      background: var(--button-active-bg);
+      color: var(--button-active-fg);
+      border-color: var(--button-active-bg);
+    }
+
+    .tables-wrapper {
+      flex: 1;
+      overflow: auto;
+      position: relative;
+      height: calc(100% - 45px);
+    }
+
+    .parse-table {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      display: none;
+      overflow: auto;
+    }
+
+    .parse-table.active {
+      display: block;
+    }
+
+    .parse-table table {
+      border-collapse: collapse;
+      width: max-content;
+      min-width: 100%;
+      font-family: monospace;
+      font-size: 0.8em;
+    }
+
+    .parse-table th {
+      background: var(--table-header-bg);
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      border: 1px solid var(--border);
+      padding: 6px 10px;
+    }
+
+    .parse-table td {
+      border: 1px solid var(--border);
+      padding: 4px 8px;
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    .parse-table .shift {
+      color: #4CAF50;
+    }
+
+    .parse-table .reduce {
+      color: #FF9800;
+    }
+
+    .parse-table .accept {
+      color: #2196F3;
+      font-weight: bold;
+    }
+
+
+    /* --- 自定义 Token 高亮样式 --- */
+    /* 关键字 */
+    .token-LET,
+    .token-FN,
+    .token-FOR,
+    .token-IN,
+    .token-WHILE,
+    .token-IF,
+    .token-ELSE,
+    .token-RETURN,
+    .token-MUT,
+    .token-LOOP,
+    .token-BREAK,
+    .token-CONTINUE {
+      color: #C586C0;
+      /* 暗色主题下的紫色，亮色主题下也适用 */
+      font-weight: bold;
+    }
+
+    /* 标识符 */
+    .token-IDENTIFIER {
+      /* 通常由 CodeMirror 主题处理，如果需要特定颜色可以在这里覆盖 */
+      /* color: #9CDCFE; */
+      /* 例如：亮蓝色 */
+    }
+
+    .token-MACRO_IDENTIFIER {
+      color: #4EC9B0;
+      /* 类似类型的颜色 */
+      font-style: italic;
+    }
+
+    /* 类型 */
+    .token-I32 {
+      color: #4EC9B0;
+      /* 蓝绿色 */
+    }
+
+    /* 常量 */
+    .token-INTEGER_CONSTANT,
+    .token-FLOATING_POINT_CONSTANT {
+      color: #B5CEA8;
+      /* 数字的绿色 */
+    }
+
+    .token-CHAR_CONSTANT,
+    .token-STRING_CONSTANT {
+      color: #CE9178;
+      /* 字符串的橙色 */
+    }
+
+    /* 注释 (CodeMirror 主题通常会处理，这里是备用/覆盖) */
+    .token-S_COMMENT,
+    .token-LM_COMMENT,
+    .token-RM_COMMENT {
+      color: #6A9955;
+      /* 注释绿色 */
+      font-style: italic;
+    }
+
+    /* 操作符和标点 */
+    .token-ASSIGN,
+    .token-PLUS,
+    .token-MINUS,
+    .token-MULT,
+    .token-DIV,
+    .token-EQ,
+    .token-GT,
+    .token-GE,
+    .token-LT,
+    .token-LE,
+    .token-NEQ,
+    .token-LPAREN,
+    .token-RPAREN,
+    .token-LBRACE,
+    .token-RBRACE,
+    .token-LBRACK,
+    .token-RBRACK,
+    .token-SEMICOLON,
+    .token-COLON,
+    .token-COMMA,
+    .token-ARROW,
+    .token-DOT,
+    .token-DOTDOT,
+    .token-AMP {
+      color: #D4D4D4;
+      /* 暗色主题下的默认文字色，亮色主题下可能需要调整 */
+    }
+
+    :root[data-theme="light"] .token-ASSIGN,
+    :root[data-theme="light"] .token-PLUS,
+    :root[data-theme="light"] .token-MINUS,
+    /* ... 其他操作符 ... */
+    :root[data-theme="light"] .token-AMP {
+      color: #000000;
+      /* 亮色主题下的操作符颜色 */
+    }
+
+    .token-UNKNOWN {
+      background-color: rgba(255, 0, 0, 0.2) !important;
+      color: red !important;
+      text-decoration: wavy underline red;
+    }
+
+    .token-EOF {
+      color: transparent;
+    }
+
+    /* --- Token 高亮样式结束 --- */
+  </style>
 </head>
-<style>
-  .tab-controls {
-    display: inline-block;
-    margin-left: 10px;
-  }
-
-  .table-switcher {
-    padding: 8px;
-    background: var(--header-bg);
-    border-bottom: 1px solid var(--border);
-  }
-  .error-display {
-    position: absolute;
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background-color: rgba(255, 77, 79, 0.08);
-    color: #ff4d4f;
-    font-weight: bold;
-    font-size: 1.2em;
-    z-index: 10;
-    border: 2px solid #ff4d4f;
-    border-radius: 4px;
-  }
-
-  /* 保留原有的 token 颜色样式 */
-  .token-LET,
-  .token-FN,
-  .token-FOR,
-  .token-IN,
-  .token-WHILE,
-  .token-IF,
-  .token-ELSE,
-  .token-RETURN,
-  .token-MUT,
-  .token-LOOP,
-  .token-BREAK,
-  .token-CONTINUE {
-    color: #569cd6;
-    font-weight: bold;
-  }
-  .token-IDENTIFIER {
-    color: #eebb2f;
-  }
-  .token-MACRO_IDENTIFIER {
-    color: #c586c0;
-  }
-  .token-I32 {
-    color: #4ec9b0;
-  }
-  .token-INTEGER_CONSTANT,
-  .token-FLOATING_POINT_CONSTANT {
-    color: #b5cea8;
-  }
-  .token-CHAR_CONSTANT,
-  .token-STRING_CONSTANT {
-    color: #ce9178;
-  }
-  .token-S_COMMENT,
-  .token-LM_COMMENT,
-  .token-RM_COMMENT {
-    color: #6a9955;
-    font-style: italic;
-  }
-  .token-ASSIGN,
-  .token-PLUS,
-  .token-MINUS,
-  .token-MULT,
-  .token-DIV,
-  .token-EQ,
-  .token-GT,
-  .token-GE,
-  .token-LT,
-  .token-LE,
-  .token-NEQ,
-  .token-LPAREN,
-  .token-RPAREN,
-  .token-LBRACE,
-  .token-RBRACE,
-  .token-LBRACK,
-  .token-RBRACK,
-  .token-SEMICOLON,
-  .token-COLON,
-  .token-COMMA,
-  .token-ARROW,
-  .token-DOT,
-  .token-DOTDOT,
-  .token-AMP {
-    color: #e466f5;
-  }
-  .token-UNKNOWN {
-    background-color: rgba(244, 67, 54, 0.2) !important;
-    color: #f44747 !important;
-    text-decoration: wavy underline;
-  }
-  .token-EOF {
-    color: transparent;
-  }
-
-  .table-btn {
-    background: none;
-    border: 1px solid var(--border);
-    color: var(--fg-main);
-    padding: 4px 12px;
-    margin-right: 4px;
-    cursor: pointer;
-    border-radius: 4px;
-    transition: all 0.2s;
-  }
-
-  .table-btn.active {
-    background: var(--node-color);
-    color: var(--bg-main);
-    border-color: var(--node-color);
-  }
-
-  .tables-wrapper {
-    flex: 1;
-    overflow: auto;
-    position: relative;
-    height: calc(100% - 40px);
-  }
-
-  .parse-table {
-    position: absolute;
-    width: 100%;
-    height: 100%;
-    padding: 10px;
-    display: none;
-    overflow: auto;
-  }
-
-  .parse-table.active {
-    display: block;
-  }
-
-  .parse-table table {
-    border-collapse: collapse;
-    width: max-content;
-    min-width: 100%;
-    font-family: monospace;
-    font-size: 12px;
-    background: var(--bg-main);
-  }
-
-  .parse-table th {
-    background: var(--header-bg);
-    position: sticky;
-    top: 0;
-    z-index: 1;
-    border: 1px solid var(--border);
-    padding: 6px 10px;
-    color: var(--fg-main);
-  }
-
-  .parse-table td {
-    border: 1px solid var(--border);
-    padding: 4px 8px;
-    text-align: center;
-    white-space: nowrap;
-    color: var(--fg-main);
-  }
-
-  .parse-table .shift {
-    color: #4ec9b0;
-  }
-
-  .parse-table .reduce {
-    color: #c586c0;
-  }
-
-  .parse-table .accept {
-    color: #569cd6;
-    font-weight: bold;
-  }
-
-  /* 浅/深色主题变量 */
-  :root[data-theme="light"] {
-    --bg-main: #ffffff;
-    --fg-main: #000000;
-    --border: #d4d4d4;
-    --header-bg: #f3f3f3;
-    --error-bg: #fdd;
-    --error-fg: #a00;
-    --editor-bg: #ffffff;
-    --gutter-bg: #f3f3f3;
-    --gutter-fg: #5a5a5a;
-    --node-color: #0064c8;
-    --node-text: #000000;
-    --link-color: #555555;
-  }
-
-  :root[data-theme="dark"] {
-    --bg-main: #1e1e1e;
-    --fg-main: #ffffff;
-    --border: #3c3c3c;
-    --header-bg: #2d2d2d;
-    --error-bg: #5a1e1e;
-    --error-fg: #f88;
-    --editor-bg: #252526;
-    --gutter-bg: #2d2d2d;
-    --gutter-fg: #858585;
-    --node-color: #4fc3f7;
-    --node-text: #e0e0e0;
-    --link-color: #888888;
-  }
-
-  /* 全局布局 */
-  body {
-    margin: 0;
-    height: 100vh;
-    display: flex;
-    overflow: hidden;
-    background: var(--bg-main);
-    color: var(--fg-main);
-    font-family: sans-serif;
-  }
-
-  /* 左侧区域 */
-  #left-panel {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    width: 50%;
-    border-right: 1px solid var(--border);
-  }
-
-  /* 右侧区域 */
-  #right-panel {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    width: 50%;
-  }
-
-  /* 代码编辑器区域 */
-  #editor-container {
-    height: 600px;
-    /* 可自定义高度 */
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    border: 1px solid #ccc;
-    border-radius: 6px;
-  }
-
-  #editor-container .panel-header {
-    padding: 6px 10px;
-    background-color: #f5f5f5;
-    border-bottom: 1px solid #ddd;
-    font-weight: bold;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-
-  #editor {
-    flex: 1;
-    resize: none;
-    width: 100%;
-    height: 100%;
-    padding: 10px;
-    border: none;
-    outline: none;
-    font-family: monospace;
-    font-size: 14px;
-    line-height: 1.5;
-    overflow-y: auto;
-    box-sizing: border-box;
-  }
-
-  /* 报错信息区域 */
-  #error-container {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    border-top: 1px solid var(--border);
-  }
-
-  /* 右侧内容区域 */
-  #right-content {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-  }
-
-  /* 右侧选项卡 */
-  #tab-selector {
-    padding: 8px;
-    background: var(--header-bg);
-    border-bottom: 1px solid var(--border);
-  }
-
-  /* 右侧内容显示区域 */
-  #content-display {
-    flex: 1;
-    display: flex;
-    position: relative;
-    overflow: hidden;
-  }
-
-  .error-display {
-    position: absolute;
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background-color: rgba(255, 77, 79, 0.08);
-    color: #ff4d4f;
-    font-weight: bold;
-    font-size: 1.2em;
-    z-index: 10;
-    border: 2px solid #ff4d4f;
-    border-radius: 4px;
-  }
-
-  /* 语法树和中间代码容器 */
-  .content-pane {
-    position: absolute;
-    width: 100%;
-    height: 100%;
-    display: none;
-  }
-
-  .content-pane.active {
-    display: block;
-  }
-
-  /* 报错信息样式 */
-  #error-info {
-    flex: 1;
-    padding: 8px;
-    overflow-y: auto;
-    font-family: monospace;
-    white-space: pre-wrap;
-  }
-
-  /* 编辑器头部样式 */
-  .panel-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 6px 12px;
-    background: var(--header-bg);
-    border-bottom: 1px solid var(--border);
-  }
-
-  /* CodeMirror 样式 */
-  .CodeMirror {
-    flex: 1;
-    height: auto;
-    background: var(--editor-bg) !important;
-  }
-
-  .CodeMirror-gutters {
-    background: var(--gutter-bg) !important;
-    border-right: 1px solid var(--border) !important;
-  }
-
-  .CodeMirror-linenumber {
-    color: var(--gutter-fg) !important;
-  }
-
-  /* 语法树样式 */
-  #tree {
-    width: 100%;
-    height: 100%;
-  }
-
-  /* 中间代码样式 */
-  #quadruples {
-    max-height: 90vh;
-    /* 设置最大高度 */
-    overflow-y: auto;
-    /* 超出垂直方向滚动 */
-    padding-right: 6px;
-    /* 给滚动条预留空间 */
-    border-radius: 8px;
-    box-shadow: inset 0 0 4px rgba(0, 0, 0, 0.05);
-    background-color: white;
-    /* 可选，看整体配色 */
-  }
-
-  .quadruple-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: 10px;
-    font-family: "Segoe UI", sans-serif;
-    font-size: 14px;
-    border-radius: 8px;
-    overflow: hidden;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  }
-
-  .quadruple-table th,
-  .quadruple-table td {
-    padding: 10px 12px;
-    text-align: left;
-    border-bottom: 1px solid #ddd;
-  }
-
-  .quadruple-table th {
-    background-color: #2c3e50;
-    color: #fff;
-    text-transform: uppercase;
-    font-weight: 600;
-  }
-
-  .quadruple-table tr:nth-child(even) {
-    background-color: #f9f9f9;
-  }
-
-  .quadruple-table tr:hover {
-    background-color: #eef6ff;
-    transition: background-color 0.2s ease-in-out;
-  }
-
-
-  /* 错误样式 */
-  .cm-error-underline {
-    text-decoration: red wavy underline;
-  }
-
-  /* 保留原有的 token 颜色样式 */
-  .token-LET,
-  .token-FN,
-  .token-FOR,
-  .token-IN,
-  .token-WHILE,
-  .token-IF,
-  .token-ELSE,
-  .token-RETURN,
-  .token-MUT,
-  .token-LOOP,
-  .token-BREAK,
-  .token-CONTINUE {
-    color: #569cd6;
-    font-weight: bold;
-  }
-
-  .token-IDENTIFIER {
-    color: #eebb2f;
-  }
-
-  .token-MACRO_IDENTIFIER {
-    color: #c586c0;
-  }
-
-  .token-I32 {
-    color: #4ec9b0;
-  }
-
-  .token-INTEGER_CONSTANT,
-  .token-FLOATING_POINT_CONSTANT {
-    color: #b5cea8;
-  }
-
-  .token-CHAR_CONSTANT,
-  .token-STRING_CONSTANT {
-    color: #ce9178;
-  }
-
-  .token-S_COMMENT,
-  .token-LM_COMMENT,
-  .token-RM_COMMENT {
-    color: #6a9955;
-    font-style: italic;
-  }
-
-  .token-ASSIGN,
-  .token-PLUS,
-  .token-MINUS,
-  .token-MULT,
-  .token-DIV,
-  .token-EQ,
-  .token-GT,
-  .token-GE,
-  .token-LT,
-  .token-LE,
-  .token-NEQ,
-  .token-LPAREN,
-  .token-RPAREN,
-  .token-LBRACE,
-  .token-RBRACE,
-  .token-LBRACK,
-  .token-RBRACK,
-  .token-SEMICOLON,
-  .token-COLON,
-  .token-COMMA,
-  .token-ARROW,
-  .token-DOT,
-  .token-DOTDOT,
-  .token-AMP {
-    color: #e466f5;
-  }
-
-  .token-UNKNOWN {
-    background-color: rgba(244, 67, 54, 0.2) !important;
-    color: #f44747 !important;
-    text-decoration: wavy underline;
-  }
-
-  .token-EOF {
-    color: transparent;
-  }
-</style>
 
 <body>
-  <!-- 左侧面板 -->
   <div id="left-panel">
-    <!-- 代码编辑器 -->
     <div id="editor-container">
       <div class="panel-header">
         <span>Editor</span>
         <button id="theme-toggle" title="Toggle Theme">🌙</button>
       </div>
-      <textarea id="editor"></textarea>
+      <textarea id="editor">// 在这里输入 Rust-like 代码
+fn example(mut a:i32) {
+    while a > 0 {
+        a = a - 1;
+    }
+}
+      </textarea>
     </div>
 
-    <!-- 报错信息 -->
     <div id="error-container">
       <div class="panel-header">
         <span>Problems</span>
@@ -551,15 +641,13 @@
     </div>
   </div>
 
-  <!-- 右侧面板 -->
   <div id="right-panel">
     <div id="right-content">
-      <!-- 选项卡选择器 -->
       <div id="tab-selector">
         <select id="display-selector">
-          <option value="syntax-tree">Syntax Tree</option>
-          <option value="intermediate-code">Intermediate Code</option>
-          <option value="parsing-tables">Parsing Tables</option> <!-- 新增选项 -->
+          <option value="syntax-tree-container">Syntax Tree</option>
+          <option value="quadruples-container">Intermediate Code</option>
+          <option value="parsing-tables-container">Parsing Tables</option>
         </select>
         <div class="tab-controls">
           <button id="zoom-in" title="Zoom In">＋</button>
@@ -567,127 +655,70 @@
         </div>
       </div>
 
-        <!-- 内容显示区域 -->
-        <div id="content-display">
-          <!-- 新增错误提示框 -->
-          <div id="error-display" class="error-display" style="display: none">
-            代码有误，无法解析
-          </div>
-
-          <!-- 语法树 -->
-          <div id="syntax-tree" class="content-pane active">
-            <svg id="tree"></svg>
-      <!-- 内容显示区域 -->
       <div id="content-display">
-        <!-- 新增错误提示框 -->
-        <div id="error-display" class="error-display" style="display: none">
-          代码有误，无法解析
+        <div id="error-display-overlay" class="error-display-overlay" style="display: none;">
         </div>
 
-        <!-- 语法树 -->
-        <div id="syntax-tree" class="content-pane active">
-          <svg id="tree"></svg>
+        <div id="syntax-tree-container" class="content-pane active">
+          <svg id="tree-svg"></svg>
         </div>
 
-        <!-- 中间代码 -->
-        <div id="intermediate-code" class="content-pane">
-          <div id="quadruples"></div> <!-- 改成 div 容器 -->
+        <div id="quadruples-container" class="content-pane">
+          <div id="quadruples-table-wrapper"></div>
         </div>
 
-        <!-- 新增解析表容器 -->
-        <div id="parsing-tables" class="content-pane">
+        <div id="parsing-tables-container" class="content-pane">
           <div class="table-switcher">
             <button class="table-btn active" data-table-type="action">Action Table</button>
             <button class="table-btn" data-table-type="goto">Goto Table</button>
           </div>
           <div class="tables-wrapper">
-            <div id="action-table" class="parse-table active"></div>
-            <div id="goto-table" class="parse-table"></div>
+            <div id="action-table-content" class="parse-table active"></div>
+            <div id="goto-table-content" class="parse-table"></div>
           </div>
         </div>
       </div>
     </div>
   </div>
 
-
-
   <script>
-    // 新增表格处理逻辑
-    let parsingTables = { action: null, goto: null };
-    // 主题切换
     const root = document.documentElement;
     const themeToggle = document.getElementById("theme-toggle");
-
-    // 全局变量保存当前解析结果
-    let lastParseResult = null;
-    // 修改选项卡切换事件
-    document
-      .getElementById("display-selector")
-      .addEventListener("change", () => {
-        if (!lastParseResult) return;
-
-        const selectedPane = displaySelector.value;
-        updateDisplay(selectedPane, lastParseResult);
-      });
-
-    // 统一的显示更新函数
-    function updateDisplay(selectedPane, data) {
-      const syntaxTreePane = document.getElementById("syntax-tree");
-      const quadruplesPane = document.getElementById("intermediate-code");
-
-      if (selectedPane === "syntax-tree") {
-        syntaxTreePane.style.display = "block";
-        quadruplesPane.style.display = "none";
-
-        // 强制重新渲染语法树
-        g.selectAll("*").remove();
-        if (data.tree) {
-          renderTree(data.tree);
-        }
-      } else {
-        syntaxTreePane.style.display = "none";
-        quadruplesPane.style.display = "block";
-
-        // 强制更新四元式显示
-        const quadruplesPane = document.getElementById("quadruples");
-        renderQuadruplesTable(quadruplesPane, data.quadruples);
-      }
-    }
-
-    function switchTheme() {
-      const next =
-        root.getAttribute("data-theme") === "light" ? "dark" : "light";
-      root.setAttribute("data-theme", next);
-      themeToggle.textContent = next === "light" ? "🌙" : "☀️";
-      editor.setOption(
-        "theme",
-        next === "light" ? "vscode-light" : "vscode-dark"
-      );
-      // 更新 D3 树的颜色
-      d3.selectAll("circle").attr("fill", "var(--node-color)");
-      d3.selectAll("text.node-label").attr("fill", "var(--node-text)");
-      d3.selectAll(".link").attr("stroke", "var(--link-color)");
-    }
-    themeToggle.addEventListener("click", switchTheme);
-
-    // 初始化 CodeMirror
-    const initTheme =
-      root.getAttribute("data-theme") === "light"
-        ? "vscode-light"
-        : "vscode-dark";
     const editor = CodeMirror.fromTextArea(
       document.getElementById("editor"),
       {
         mode: "rust",
         lineNumbers: true,
-        theme: initTheme,
+        theme: root.getAttribute("data-theme") === "light" ? "vscode-light" : "vscode-dark",
       }
     );
 
+    let lastParseResult = null;
+    let parsingTablesData = { action: null, goto: null };
     let errorMarks = [];
     let tokenMarks = [];
 
-    // 清除所有标记
+    // D3 语法树相关
+    const svg = d3.select("#tree-svg");
+    const g = svg.append("g"); // 主 <g> 元素用于变换
+    const zoom = d3.zoom().scaleExtent([0.1, 4]).on("zoom", (event) => {
+      g.attr("transform", event.transform);
+    });
+    svg.call(zoom).on("dblclick.zoom", null);
+
+
+    function switchTheme() {
+      const currentTheme = root.getAttribute("data-theme");
+      const nextTheme = currentTheme === "light" ? "dark" : "light";
+      root.setAttribute("data-theme", nextTheme);
+      themeToggle.textContent = nextTheme === "light" ? "🌙" : "☀️";
+      editor.setOption("theme", nextTheme === "light" ? "vscode-light" : "vscode-dark");
+      if (lastParseResult && lastParseResult.tree && !lastParseResult.error) { // 只在无错误且有树时重绘
+        renderTree(lastParseResult.tree);
+      }
+    }
+    themeToggle.addEventListener("click", switchTheme);
+
     function clearAllMarks() {
       tokenMarks.forEach((m) => m.clear());
       tokenMarks = [];
@@ -695,44 +726,33 @@
       errorMarks = [];
     }
 
-    // 高亮错误
-    function highlightErrors(error, success) {
+    function highlightErrors(errorData) {
       errorMarks.forEach((m) => m.clear());
       errorMarks = [];
-      if (!success) {
-        const from = {
-          line: error.tok.loc.row - 1,
-          ch: error.tok.loc.col - 1,
-        };
-        const to = {
-          line: error.tok.loc.row - 1,
-          ch: error.tok.loc.col - 1 + error.tok.content.length,
-        };
+      if (errorData && errorData.tok && errorData.tok.loc) {
+        const tok = errorData.tok;
+        const from = { line: tok.loc.row - 1, ch: tok.loc.col - 1 };
+        const to = { line: tok.loc.row - 1, ch: tok.loc.col - 1 + (tok.content ? tok.content.length : 1) };
         errorMarks.push(
-          editor
-            .getDoc()
-            .markText(from, to, { className: "cm-error-underline" })
+          editor.getDoc().markText(from, to, { className: "cm-error-underline" })
         );
       }
     }
 
-    // 标记token
     function markTokens(tokens) {
       tokens.forEach((tok) => {
-        const from = { line: tok.loc.row - 1, ch: tok.loc.col - 1 };
-        const to = {
-          line: tok.loc.row - 1,
-          ch: tok.loc.col - 1 + tok.content.length,
-        };
-        tokenMarks.push(
-          editor.getDoc().markText(from, to, {
-            className: "token-" + tok.prop,
-          })
-        );
+        if (tok.loc && typeof tok.loc.row === 'number' && typeof tok.loc.col === 'number' && tok.content) {
+          const from = { line: tok.loc.row - 1, ch: tok.loc.col - 1 };
+          const to = { line: tok.loc.row - 1, ch: tok.loc.col - 1 + tok.content.length };
+          tokenMarks.push(
+            editor.getDoc().markText(from, to, {
+              className: "token-" + tok.prop,
+            })
+          );
+        }
       });
     }
 
-    // 防抖函数
     function debounce(fn, delay = 500) {
       let t;
       return (...args) => {
@@ -741,131 +761,172 @@
       };
     }
 
-    // 选项卡切换
+    // ---------------- PANES AND DISPLAY LOGIC ----------------
     const displaySelector = document.getElementById("display-selector");
-    const contentPanes = document.querySelectorAll(".content-pane");
+    const allContentPanesNodeList = document.querySelectorAll(".content-pane"); // NodeList
+    const errorDisplayOverlay = document.getElementById("error-display-overlay");
+
+
+    function updateActivePaneContent(selectedPaneId, data) {
+      if (!data) return;
+
+      allContentPanesNodeList.forEach(pane => {
+        if (pane.id === selectedPaneId) {
+          pane.classList.add("active");
+        } else {
+          pane.classList.remove("active");
+        }
+      });
+
+      if (selectedPaneId === "syntax-tree-container") {
+        if (data.tree && Object.keys(data.tree).length > 0) {
+          renderTree(data.tree); // renderTree 会先清空 g
+          // 自动缩放逻辑
+          const bounds = g.node().getBBox();
+          const parent = svg.node().parentElement; // Should be syntax-tree-container
+          const fullWidth = parent.clientWidth;
+          const fullHeight = parent.clientHeight;
+
+          const width = bounds.width;
+          const height = bounds.height;
+
+          if (width > 0 && height > 0) { // Ensure bounds are valid
+            const midX = bounds.x + width / 2;
+            const midY = bounds.y + height / 2;
+            // Reduce scale slightly more to ensure padding
+            const scale = Math.min(0.9, Math.min(fullWidth / width, fullHeight / height) * 0.85);
+
+            svg.call(zoom.transform, d3.zoomIdentity
+              .translate(fullWidth / 2 - scale * midX, fullHeight / 2 - scale * midY)
+              .scale(scale));
+          } else { // Empty tree or error in bounding box
+            svg.call(zoom.transform, d3.zoomIdentity); // Reset zoom for empty tree
+          }
+        } else {
+          g.selectAll("*").remove(); // Clear if no tree data
+          svg.call(zoom.transform, d3.zoomIdentity); // Reset zoom
+        }
+      } else if (selectedPaneId === "quadruples-container") {
+        renderQuadruplesTable(document.getElementById("quadruples-table-wrapper"), data.quadruples);
+      } else if (selectedPaneId === "parsing-tables-container") {
+        // Tables are rendered in parseCode(). Here, ensure sub-tab state is correct.
+        const actionTableBtn = document.querySelector('.table-btn[data-table-type="action"]');
+        const gotoTableBtn = document.querySelector('.table-btn[data-table-type="goto"]');
+        const actionTableContent = document.getElementById('action-table-content');
+        const gotoTableContent = document.getElementById('goto-table-content');
+
+        // If neither sub-tab is active, default to action table
+        if (!actionTableBtn.classList.contains('active') && !gotoTableBtn.classList.contains('active')) {
+          actionTableBtn.classList.add('active');
+          actionTableContent.classList.add('active');
+          gotoTableBtn.classList.remove('active');
+          gotoTableContent.classList.remove('active');
+        }
+      }
+    }
 
     displaySelector.addEventListener("change", function () {
-      contentPanes.forEach((pane) => pane.classList.remove("active"));
-      document.getElementById(this.value).classList.add("active");
-      if (this.value === 'parsing-tables' && parsingTables.action) {
-        document.getElementById('action-table').classList.add('active');
-        document.getElementById('goto-table').classList.remove('active');
-        document.querySelector(`.table-btn[data-table-type="action"]`)
-          .classList.add('active');
-        document.querySelector(`.table-btn[data-table-type="goto"]`)
-          .classList.remove('active');
-      }
+      if (!lastParseResult || lastParseResult.error) return; // Don't switch if error or no result
+      updateActivePaneContent(this.value, lastParseResult);
     });
 
-    // D3 缩放 & 布局
-    const svg = d3.select("#tree");
-    const g = svg.append("g").attr("transform", "translate(40,40)");
-    const zoom = d3
-      .zoom()
-      .on("zoom", (e) => g.attr("transform", e.transform));
-    svg.call(zoom);
-    document.getElementById("zoom-in").onclick = () =>
-      svg.transition().call(zoom.scaleBy, 1.2);
-    document.getElementById("zoom-out").onclick = () =>
-      svg.transition().call(zoom.scaleBy, 0.8);
-    // 表格切换功能
     document.querySelectorAll('.table-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const tableType = btn.dataset.tableType;
-
-        // 切换按钮状态
-        document.querySelectorAll('.table-btn').forEach(b =>
-          b.classList.remove('active'));
+        document.querySelectorAll('.table-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-
-        // 切换表格显示
-        document.querySelectorAll('.parse-table').forEach(t =>
-          t.classList.remove('active'));
-        document.getElementById(`${tableType}-table`).classList.add('active');
+        document.querySelectorAll('.parse-table').forEach(t => t.classList.remove('active'));
+        document.getElementById(`${tableType}-table-content`).classList.add('active');
       });
     });
 
-    // 生成解析表函数
-    function renderParseTable(containerId, tableData, type) {
-      const container = document.getElementById(containerId);
-      container.innerHTML = '';
+    document.getElementById("zoom-in").onclick = () => svg.transition().duration(200).call(zoom.scaleBy, 1.2);
+    document.getElementById("zoom-out").onclick = () => svg.transition().duration(200).call(zoom.scaleBy, 0.8);
 
-      if (!tableData || Object.keys(tableData).length === 0) {
-        container.textContent = `No ${type} table available`;
+
+    // ---------------- RENDERING FUNCTIONS ----------------
+
+    function renderTree(treeData) {
+      g.selectAll("*").remove(); // Clear previous tree elements
+      if (!treeData || Object.keys(treeData).length === 0) {
+        console.log("No tree data to render or empty tree.");
         return;
       }
 
+      const rootNode = d3.hierarchy(treeData, d => d.children);
+      const treeLayout = d3.tree().nodeSize([80, 180]); // Increased spacing: y, x
+      treeLayout(rootNode);
 
+      // Links
+      const linkSelection = g.selectAll('.link')
+        .data(rootNode.links())
+        .join('path')
+        .attr('class', 'link')
+        .attr('d', d3.linkHorizontal()
+          .x(d => d.y)
+          .y(d => d.x));
 
-      // 收集所有符号（包括数字键）
-      const symbols = new Set();
-      Object.values(tableData).forEach(entries => {
-        Object.keys(entries).forEach(symbol => {
-          symbols.add(symbol);
-        });
-      });
+      // Nodes
+      const nodeSelection = g.selectAll('.node')
+        .data(rootNode.descendants())
+        .join('g')
+        .attr('class', 'node') // Base class for all nodes
+        .attr('transform', d => `translate(${d.y},${d.x})`)
+        .on('mouseover', function (event, d_hover) { // 'd_hover' is the data for the hovered node
+          nodeSelection.classed('node--hover', n_data => n_data === d_hover);
+          linkSelection.classed('link--hover', l_data => l_data.source === d_hover || l_data.target === d_hover);
 
-      // 将符号转换为数字并排序
-      const sortedSymbols = Array.from(symbols)
-        .map(Number)
-        .sort((a, b) => a - b)
-        .map(String); // 转换回字符串以便作为键使用
-
-      // 创建表格元素
-      const table = document.createElement('table');
-      const thead = document.createElement('thead');
-      const tbody = document.createElement('tbody');
-
-      // 创建表头
-      const headerRow = document.createElement('tr');
-      headerRow.appendChild(createCell('th', 'State'));
-
-      sortedSymbols.forEach(symbol => {
-        headerRow.appendChild(createCell('th', symbol));
-      });
-      thead.appendChild(headerRow);
-
-      // 创建表格内容
-      Object.entries(tableData)
-        .sort(([a], [b]) => Number(a) - Number(b)) // 按状态编号排序
-        .forEach(([state, actions]) => {
-          const row = document.createElement('tr');
-          row.appendChild(createCell('td', state));
-
-          sortedSymbols.forEach(symbol => {
-            const action = actions[symbol] || '';
-            const cell = createCell('td', action);
-
-            if (type === 'action') {
-              if (action.startsWith('shift')) {
-                cell.classList.add('shift');
-                cell.textContent = `s${action.split(' ')[1]}`; // 简化为"s78"格式
-              } else if (action.startsWith('reduce')) {
-                cell.classList.add('reduce');
-                cell.textContent = `r${action.split(' ')[1]}`; // 简化为"r11"格式
-              } else if (action === 'accept') {
-                cell.classList.add('accept');
-                cell.textContent = 'acc'; // 简化为"acc"
-              }
-            } else if (type === 'goto') {
-              // GOTO表通常只包含数字，不需要特殊处理
-              if (action) {
-                cell.textContent = action;
-              }
-            }
-
-            row.appendChild(cell);
-          });
-
-          tbody.appendChild(row);
+          const subtreeNodesData = d_hover.descendants();
+          nodeSelection.classed('subtree-highlight', n_data => subtreeNodesData.includes(n_data));
+          linkSelection.classed('subtree-highlight', l_data =>
+            subtreeNodesData.includes(l_data.source) && subtreeNodesData.includes(l_data.target)
+          );
+        })
+        .on('mouseout', function (event, d_hover) {
+          nodeSelection.classed('node--hover', false);
+          linkSelection.classed('link--hover', false);
+          nodeSelection.classed('subtree-highlight', false);
+          linkSelection.classed('subtree-highlight', false);
         });
 
-      table.appendChild(thead);
-      table.appendChild(tbody);
-      container.appendChild(table);
+      nodeSelection.append('circle')
+        .attr('r', 7); // Radius was already set in CSS, can be controlled here too
+
+      nodeSelection.append('text')
+        .attr('dy', '0.31em') // Vertical alignment
+        .attr('x', d => d.children ? -12 : 12) // Position text left of parent, right of leaf
+        .attr('text-anchor', d => d.children ? 'end' : 'start')
+        .text(d => d.data.root);
+      // Text halo effect is now handled by CSS 'paint-order' and 'stroke' on .node text
     }
-    // 生成四元式表格函数
+
+
+    function renderQuadruplesTable(containerEl, quadruples) {
+      containerEl.innerHTML = "";
+      if (!Array.isArray(quadruples) || quadruples.length === 0) {
+        containerEl.textContent = "No intermediate code generated.";
+        return;
+      }
+      const table = document.createElement("table");
+      table.className = "quadruple-table";
+      const headerRow = document.createElement("tr");
+      ["Index", "Op", "Arg1", "Arg2", "Result"].forEach(text => {
+        const th = document.createElement("th");
+        th.textContent = text;
+        headerRow.appendChild(th);
+      });
+      table.appendChild(headerRow);
+      quadruples.forEach((quad, i) => {
+        const row = document.createElement("tr");
+        [i, quad.op || "_", quad.arg1 || "_", quad.arg2 || "_", quad.result || "_"].forEach(text => {
+          const td = document.createElement("td");
+          td.textContent = text;
+          row.appendChild(td);
+        });
+        table.appendChild(row);
+      });
+      containerEl.appendChild(table);
+    }
 
     function createCell(tag, content) {
       const cell = document.createElement(tag);
@@ -873,184 +934,135 @@
       return cell;
     }
 
+    function renderParseTable(containerId, tableData, type) {
+      const container = document.getElementById(containerId);
+      container.innerHTML = '';
 
-    // 渲染语法树
-    function renderTree(treeData) {
-      g.selectAll("*").remove();
-
-      const rootN = d3.hierarchy(treeData, (d) => d.children);
-      d3.tree().nodeSize([60, 180])(rootN);
-
-      g.selectAll(".link")
-        .data(rootN.links())
-        .join("path")
-        .attr("class", "link")
-        .attr("fill", "none")
-        .attr("stroke", "var(--link-color)")
-        .attr("stroke-width", 1.5)
-        .attr(
-          "d",
-          d3
-            .linkHorizontal()
-            .x((d) => d.y)
-            .y((d) => d.x)
-        );
-
-      const node = g
-        .selectAll(".node")
-        .data(rootN.descendants())
-        .join("g")
-        .attr("class", "node")
-        .attr("transform", (d) => `translate(${d.y},${d.x})`)
-        .on("mouseover", (_, d) => {
-          const subs = d.descendants();
-          g.selectAll("circle").attr("fill", (n) =>
-            subs.includes(n) ? "#f00" : "var(--node-color)"
-          );
-          g.selectAll(".link").attr("stroke", (l) =>
-            subs.includes(l.source) && subs.includes(l.target)
-              ? "#f00"
-              : "var(--link-color)"
-          );
-        })
-        .on("mouseout", () => {
-          g.selectAll("circle").attr("fill", "var(--node-color)");
-          g.selectAll(".link").attr("stroke", "var(--link-color)");
-        });
-
-      node.append("circle").attr("r", 8).attr("fill", "var(--node-color)");
-
-      node
-        .append("text")
-        .attr("class", "node-label")
-        .attr("dy", 4)
-        .attr("x", 0)
-        .style("text-anchor", "middle")
-        .attr("fill", "var(--node-text)")
-        .text((d) => d.data.root)
-        .style("font-size", "13px")
-        .style("pointer-events", "none");
-    }
-    function renderQuadruplesTable(containerEl, quadruples) {
-      containerEl.innerHTML = "";
-
-      if (!Array.isArray(quadruples) || quadruples.length === 0) {
-        containerEl.textContent = "No intermediate code generated";
+      if (!tableData || Object.keys(tableData).length === 0) {
+        container.textContent = `No ${type} table data available.`;
         return;
       }
 
-      const table = document.createElement("table");
-      table.className = "quadruple-table"; // 添加样式类名
-
-      const headerRow = document.createElement("tr");
-      const headers = ["Index", "Op", "Arg1", "Arg2", "Result"];
-      headers.forEach((header) => {
-        const th = document.createElement("th");
-        th.textContent = header;
-        headerRow.appendChild(th);
+      const symbols = new Set();
+      Object.values(tableData).forEach(entries => {
+        Object.keys(entries).forEach(symbolId => symbols.add(symbolId));
       });
-      table.appendChild(headerRow);
 
-      quadruples.forEach((quad, i) => {
-        const row = document.createElement("tr");
-        const cells = [
-          i,
-          quad.op || "",
-          quad.arg1 || "",
-          quad.arg2 || "",
-          quad.result || "",
-        ];
-        cells.forEach((value) => {
-          const td = document.createElement("td");
-          td.textContent = value;
-          row.appendChild(td);
+      const sortedSymbolIds = Array.from(symbols).map(Number).sort((a, b) => a - b);
+
+      const table = document.createElement('table');
+      const thead = document.createElement('thead');
+      const tbody = document.createElement('tbody');
+      const headerRow = document.createElement('tr');
+      headerRow.appendChild(createCell('th', 'State'));
+      sortedSymbolIds.forEach(symbolId => {
+        headerRow.appendChild(createCell('th', symbolId.toString()));
+      });
+      thead.appendChild(headerRow);
+
+      Object.entries(tableData)
+        .sort(([stateA], [stateB]) => Number(stateA) - Number(stateB))
+        .forEach(([state, actions]) => {
+          const row = document.createElement('tr');
+          row.appendChild(createCell('td', state));
+          sortedSymbolIds.forEach(symbolIdStr => {
+            const symbolKey = symbolIdStr.toString();
+            const action = actions[symbolKey] || '';
+            const cell = createCell('td', '');
+
+            if (action) {
+              if (type === 'action') {
+                if (action.startsWith('shift')) cell.className = 'shift';
+                else if (action.startsWith('reduce')) cell.className = 'reduce';
+                else if (action === 'accept') cell.className = 'accept';
+                cell.textContent = action;
+              } else if (type === 'goto') {
+                cell.textContent = action;
+              }
+            }
+            row.appendChild(cell);
+          });
+          tbody.appendChild(row);
         });
-        table.appendChild(row);
-      });
-
-      containerEl.appendChild(table);
+      table.appendChild(thead);
+      table.appendChild(tbody);
+      container.appendChild(table);
     }
 
-    // 解析代码
+    // ---------------- PARSING AND INITIALIZATION ----------------
     async function parseCode() {
-      const res = await fetch("/api/parse", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: editor.getValue() }),
-      });
-      const data = await res.json();
-      lastParseResult = data; // 保存解析结果
+      const errorInfoEl = document.getElementById("error-info");
+      try {
+        const res = await fetch("/api/parse", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code: editor.getValue() }),
+        });
+        if (!res.ok) {
+          const errorText = await res.text(); // Attempt to get more error details
+          errorDisplayOverlay.textContent = `Server Error: ${res.status}. ${errorText || 'No additional error message.'}`;
+          errorDisplayOverlay.style.display = "flex";
+          allContentPanesNodeList.forEach(pane => pane.classList.remove("active"));
+          throw new Error(`Server error: ${res.status} ${errorText}`);
+        }
+        const data = await res.json();
+        lastParseResult = data;
 
-      clearAllMarks();
+        clearAllMarks();
+        errorDisplayOverlay.style.display = "none";
 
+        if (data.error) {
+          errorInfoEl.textContent = `Error: ${data.error.content} (line ${data.error.loc.row}, col ${data.error.loc.col})`;
+          errorInfoEl.style.color = "var(--error-fg)";
+          errorDisplayOverlay.textContent = `Error: ${data.error.content}\nAt line ${data.error.loc.row}, column ${data.error.loc.col}`;
+          errorDisplayOverlay.style.display = "flex";
+          allContentPanesNodeList.forEach(pane => pane.classList.remove("active"));
 
-      const errorInfo = document.getElementById("error-info");
-      const errorDisplay = document.getElementById("error-display");
-      const syntaxTreePane = document.getElementById("syntax-tree");
-      const quadruplesPane = document.getElementById("intermediate-code");
-      const displaySelector = document.getElementById("display-selector");
+          if (data.tokens) markTokens(data.tokens);
+          highlightErrors(data.error);
+        } else {
+          errorInfoEl.textContent = "0 errors, 0 warnings";
+          errorInfoEl.style.color = "var(--fg-main)";
 
-      if (data.error) {
-        // 错误处理
-        errorInfo.textContent = `Error: ${data.error.content} (line ${data.error.loc.row}, col ${data.error.loc.col})`;
-        errorInfo.style.color = "var(--error-fg)";
-        errorInfo.style.display = "block";
-        g.selectAll("*").remove();
-        // 显示错误提示框，隐藏正常内容
-        errorDisplay.style.display = "flex";
-        syntaxTreePane.style.display = "none";
-        quadruplesPane.style.display = "none";
+          parsingTablesData.action = data.action || {};
+          parsingTablesData.goto = data.goto || {};
 
-        markTokens(data.tokens);
-        highlightErrors(data.error, false);
-      } else {
-        // 成功处理
-        errorInfo.textContent = "0 errors, 0 warnings";
-        errorInfo.style.color = "inherit";
-        errorDisplay.style.display = "none";
+          if (data.tokens) markTokens(data.tokens);
 
-        // ✅ 渲染解析表（action 和 goto）
-        parsingTables = {
-          action: data.action || {},
-          goto: data.goto || {}
-        };
-        renderParseTable("action-table", parsingTables.action, "action");
-        renderParseTable("goto-table", parsingTables.goto, "goto");
+          renderParseTable("action-table-content", parsingTablesData.action, "action");
+          renderParseTable("goto-table-content", parsingTablesData.goto, "goto");
 
-        // // 确保语法树区域是SVG元素
-        // if (!syntaxTreePane.querySelector("svg")) {
-        //   syntaxTreePane.innerHTML = '<svg id="tree"></svg>';
-        // }
-
-        // // 重新初始化D3元素
-        // const svg = d3.select("#tree");
-        // let g = svg.select("g");
-        // if (g.empty()) {
-        //   g = svg.append("g").attr("transform", "translate(40,40)");
-        //   svg.call(zoom);
-        // } else {
-        //   g.selectAll("*").remove();
-        // }
-
-        // // 渲染语法树
-        // if (data.tree) {
-        //   renderTree(data.tree);
-        // }
-
-        // // 强制更新中间代码显示
-        // renderQuadruplesTable(quadruplesPane, data.quadruples);
-
-        updateDisplay(displaySelector.value, data);
-
-        markTokens(data.tokens);
+          updateActivePaneContent(displaySelector.value, data);
+        }
+      } catch (err) {
+        console.error("Parsing request failed:", err);
+        if (!errorDisplayOverlay.style.display || errorDisplayOverlay.style.display === "none") {
+          errorDisplayOverlay.textContent = "Error communicating with server or processing response.";
+          errorDisplayOverlay.style.display = "flex";
+        }
+        errorInfoEl.textContent = `Failed to communicate with server: ${err.message}`;
+        errorInfoEl.style.color = "var(--error-fg)";
+        allContentPanesNodeList.forEach(pane => pane.classList.remove("active"));
       }
     }
 
-    const debouncedParse = debounce(parseCode, 500);
+    const debouncedParse = debounce(parseCode, 600);
     editor.on("change", debouncedParse);
 
-    // 初次渲染
-    parseCode();
+    // Initial setup
+    const preferredTheme = localStorage.getItem("theme") ||
+      (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    if (preferredTheme === "dark") { // Correctly apply dark theme if preferred
+      root.setAttribute("data-theme", "dark");
+      themeToggle.textContent = "☀️";
+      editor.setOption("theme", "vscode-dark");
+    } else { // Default to light
+      root.setAttribute("data-theme", "light");
+      themeToggle.textContent = "🌙";
+      editor.setOption("theme", "vscode-light");
+    }
+
+    parseCode(); // Initial parse
   </script>
 </body>
 
