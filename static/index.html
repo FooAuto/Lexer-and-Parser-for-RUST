@@ -16,6 +16,12 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.2/d3.min.js"></script>
 
   <style>
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
+
     /* 浅/深色主题变量 */
     :root[data-theme="light"] {
       --bg-main: #ffffff;
@@ -146,18 +152,6 @@
       /* 最小高度 */
     }
 
-    .panel-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 8px 12px;
-      /* 统一内边距 */
-      background: var(--header-bg);
-      border-bottom: 1px solid var(--border);
-      font-weight: 500;
-      /* 调整字重 */
-    }
-
     #theme-toggle {
       background: none;
       border: none;
@@ -223,15 +217,6 @@
       flex-direction: column;
       overflow: hidden;
       /* 防止内部溢出影响布局 */
-    }
-
-    /* 右侧选项卡 */
-    #tab-selector {
-      padding: 8px 12px;
-      background: var(--header-bg);
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      align-items: center;
     }
 
     #display-selector {
@@ -618,6 +603,27 @@
     }
 
     /* --- Token 高亮样式结束 --- */
+
+
+    .panel-header,
+    #tab-selector {
+      display: flex;
+      align-items: center;
+      padding: 8px 12px;
+      background: var(--header-bg);
+      border-bottom: 1px solid var(--border);
+      height: 48px;
+      box-sizing: border-box;
+    }
+
+    .panel-header {
+      justify-content: space-between;
+      font-weight: 500;
+    }
+
+    #tab-selector {
+      justify-content: flex-start;
+    }
   </style>
 </head>
 
@@ -628,13 +634,13 @@
         <span>Editor</span>
         <button id="theme-toggle" title="Toggle Theme">🌙</button>
       </div>
-      <textarea id="editor">// 在这里输入 Rust-like 代码
+      <textarea id="editor">
+// 在这里输入 Rust-like 代码
 fn example(mut a:i32) {
     while a > 0 {
         a = a - 1;
     }
-}
-      </textarea>
+}</textarea>
     </div>
 
     <div id="error-container">
