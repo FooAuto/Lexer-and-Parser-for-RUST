@@ -45,7 +45,7 @@ app.mount("/static", StaticFiles(directory=resource_path("static")), name="stati
 @app.post("/api/parse")
 async def api_parse(request: Request):
     lexer = app.state.lexer
-    parser = app.state.parser
+    parser = Parser()
     body = await request.json()
     code = body.get("code", "")
     lines = code.splitlines(keepends=True)
