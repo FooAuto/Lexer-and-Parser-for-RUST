@@ -191,6 +191,22 @@
         text-decoration: red wavy underline;
       }
 
+      .error-display {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background-color: rgba(255, 77, 79, 0.08);
+        color: #ff4d4f;
+        font-weight: bold;
+        font-size: 1.2em;
+        z-index: 10;
+        border: 2px solid #ff4d4f;
+        border-radius: 4px;
+      }
+
       /* 保留原有的 token 颜色样式 */
       .token-LET,
       .token-FN,
@@ -303,6 +319,11 @@
 
         <!-- 内容显示区域 -->
         <div id="content-display">
+          <!-- 新增错误提示框 -->
+          <div id="error-display" class="error-display" style="display: none">
+            代码有误，无法解析
+          </div>
+
           <!-- 语法树 -->
           <div id="syntax-tree" class="content-pane active">
             <svg id="tree"></svg>
@@ -320,6 +341,50 @@
       // 主题切换
       const root = document.documentElement;
       const themeToggle = document.getElementById("theme-toggle");
+      // 全局变量保存当前解析结果
+      let lastParseResult = null;
+      // 修改选项卡切换事件
+      document
+        .getElementById("display-selector")
+        .addEventListener("change", () => {
+          if (!lastParseResult) return;
+
+          const selectedPane = displaySelector.value;
+          updateDisplay(selectedPane, lastParseResult);
+        });
+
+      // 统一的显示更新函数
+      function updateDisplay(selectedPane, data) {
+        const syntaxTreePane = document.getElementById("syntax-tree");
+        const quadruplesPane = document.getElementById("intermediate-code");
+
+        if (selectedPane === "syntax-tree") {
+          syntaxTreePane.style.display = "block";
+          quadruplesPane.style.display = "none";
+
+          // 强制重新渲染语法树
+          g.selectAll("*").remove();
+          if (data.tree) {
+            renderTree(data.tree);
+          }
+        } else {
+          syntaxTreePane.style.display = "none";
+          quadruplesPane.style.display = "block";
+
+          // 强制更新四元式显示
+          const quadruplesEl = document.getElementById("quadruples");
+          if (data.quadruples && data.quadruples.length > 0) {
+            quadruplesEl.textContent = data.quadruples
+              .map(
+                (quad, i) =>
+                  `${i.toString().padStart(3, "0")}: ${JSON.stringify(quad)}`
+              )
+              .join("\n");
+          } else {
+            quadruplesEl.textContent = "No intermediate code generated";
+          }
+        }
+      }
 
       function switchTheme() {
         const next =
@@ -487,7 +552,6 @@
           .style("pointer-events", "none");
       }
 
-      // 解析代码
       async function parseCode() {
         const res = await fetch("/api/parse", {
           method: "POST",
@@ -495,65 +559,35 @@
           body: JSON.stringify({ code: editor.getValue() }),
         });
         const data = await res.json();
+        lastParseResult = data; // 保存解析结果
 
         clearAllMarks();
 
         const errorInfo = document.getElementById("error-info");
-        const syntaxTreeEl = document.getElementById("syntax-tree");
-        const quadruplesEl = document.getElementById("quadruples");
+        const errorDisplay = document.getElementById("error-display");
+        const syntaxTreePane = document.getElementById("syntax-tree");
+        const quadruplesPane = document.getElementById("intermediate-code");
+        const displaySelector = document.getElementById("display-selector");
 
         if (data.error) {
           // 错误处理
           errorInfo.textContent = `Error: ${data.error.content} (line ${data.error.loc.row}, col ${data.error.loc.col})`;
           errorInfo.style.color = "var(--error-fg)";
-
-          // 清空并显示错误信息
-          syntaxTreeEl.innerHTML = "Code contains errors, cannot parse";
-          quadruplesEl.textContent = "Code contains errors, cannot parse";
+          errorInfo.style.display = "block";
+          g.selectAll("*").remove();
+          // 显示错误提示框，隐藏正常内容
+          errorDisplay.style.display = "flex";
+          syntaxTreePane.style.display = "none";
+          quadruplesPane.style.display = "none";
 
           markTokens(data.tokens);
           highlightErrors(data.error, false);
         } else {
-          // 成功处理
           errorInfo.textContent = "0 errors, 0 warnings";
           errorInfo.style.color = "inherit";
+          errorDisplay.style.display = "none";
 
-          // 确保语法树区域是SVG元素
-          const syntaxTreeEl = document.getElementById("syntax-tree");
-          if (!syntaxTreeEl.querySelector("svg")) {
-            syntaxTreeEl.innerHTML = '<svg id="tree"></svg>';
-          }
-
-          // 重新初始化D3元素
-          const svg = d3.select("#tree");
-          let g = svg.select("g");
-          if (g.empty()) {
-            g = svg.append("g").attr("transform", "translate(40,40)");
-            svg.call(zoom);
-          } else {
-            g.selectAll("*").remove();
-          }
-
-          // 渲染语法树
-          if (data.tree) {
-            renderTree(data.tree);
-          }
-
-          // 强制更新中间代码显示
-          const quadruplesEl = document.getElementById("quadruples");
-          quadruplesEl.textContent = ""; // 先清空
-
-          if (data.quadruples && data.quadruples.length > 0) {
-            quadruplesEl.textContent = data.quadruples
-              .map(
-                (quad, i) =>
-                  `${i.toString().padStart(3, "0")}: ${JSON.stringify(quad)}`
-              )
-              .join("\n");
-          } else {
-            quadruplesEl.textContent = "No intermediate code generated";
-          }
-
+          updateDisplay(displaySelector.value, data);
           markTokens(data.tokens);
         }
       }
