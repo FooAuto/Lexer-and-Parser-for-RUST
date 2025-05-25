@@ -2226,12 +2226,12 @@ class SemanticAnalyzer:
                 "is_empty": False,
                 "code": current_code,  # 传递子代码，但实际控制流代码由process_if_statement生成
             }
-        elif production_rule_str == "WhileStatement -> WHILE Expression StatementBlock":
-            cond_expr_attrs = get_child_attrs(1)
-            body_block_attrs = get_child_attrs(2)
-            return self.process_while_loop(
-                cond_expr_attrs, body_block_attrs, line_num_approx
-            )
+        # elif production_rule_str == "WhileStatement -> WHILE Expression StatementBlock":
+        #     cond_expr_attrs = get_child_attrs(1)
+        #     body_block_attrs = get_child_attrs(2)
+        #     return self.process_while_loop(
+        #         cond_expr_attrs, body_block_attrs, line_num_approx
+        #     )
         elif (
             production_rule_str
             == "ForStatement -> FOR VariableDeclarationInner IN IterableStructure StatementBlock"
@@ -2341,7 +2341,54 @@ class SemanticAnalyzer:
         elif production_rule_str == "Factor -> AMP Factor":
             factor_to_get_address_attrs = get_child_attrs(1)
             return self.process_reference_op("&", factor_to_get_address_attrs, line_num_approx)
+        elif production_rule_str == "WhileHeader -> WHILE Expression":
+            while_token = get_token_obj_from_child(0)
+            cond_expr_attrs = get_child_attrs(1)
             
+            line_num = while_token['loc']['row'] if while_token and 'loc' in while_token else line_num_approx
+
+            loop_data_from_begin = self.process_while_loop_begin(line_num)
+            
+            quads_for_condition = []
+            quads_for_condition.extend(cond_expr_attrs.get("code", []))
+            
+            if cond_expr_attrs.get("type") not in ["bool", "i32"]: # 假设条件可以是 bool 或 i32
+                raise SemanticError(
+                    f"While condition must be bool or i32, found {self.get_type_name(cond_expr_attrs.get('type'))}.",
+                    line_num
+                )
+            
+            self.add_quad("IF_FALSE", cond_expr_attrs.get("place"), result=loop_data_from_begin["end_label"])
+            quads_for_condition.append(self.quadruples.pop())
+            
+            all_header_quads = loop_data_from_begin.get("quads", []) + quads_for_condition
+            
+            return {
+                "quads": all_header_quads,
+                "loop_data_ref": loop_data_from_begin
+            }
+
+        elif production_rule_str == "WhileStatement -> WhileHeader StatementBlock WhileEpilogue":
+            header_attrs = get_child_attrs(0)    # 来自 WhileHeader 的归约结果
+            body_attrs = get_child_attrs(1)      # 来自 StatementBlock 的归约结果
+            epilogue_attrs = get_child_attrs(2)  # 来自 WhileEpilogue 的归约结果
+
+            all_quads = []
+            all_quads.extend(header_attrs.get("quads", []))
+            all_quads.extend(body_attrs.get("code", []))
+            all_quads.extend(epilogue_attrs.get("quads", []))
+            
+            return {"code": all_quads, "type": "void"}
+
+        elif production_rule_str == "WhileEpilogue -> epsilon":
+            if not self.loop_stack or self.loop_stack[-1]["type"] != "while":
+                raise SemanticError("Internal error: WhileEpilogue reached with invalid or missing 'while' context on loop_stack.", line_num_approx)
+            
+            current_loop_ctx = self.loop_stack[-1] # 不要立即 pop！！！
+
+            end_attrs = self.process_while_loop_end({"loop_ctx": current_loop_ctx, "start_label": current_loop_ctx["start_label"], "end_label": current_loop_ctx["end_label"]}, line_num_approx)
+            
+            return {"quads": end_attrs.get("quads", [])}
         else: # NOT ALLOWED！！！
             print(
                 f"警告: dispatch_semantic_action 中 '{production_rule_str}' (行 ~{line_num_approx}) 未精确匹配，使用默认聚合/传递。"
