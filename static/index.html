@@ -88,9 +88,37 @@
 
       /* 代码编辑器区域 */
       #editor-container {
-        flex: 3;
+        height: 600px; /* 可自定义高度 */
+        overflow: hidden;
         display: flex;
         flex-direction: column;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+      }
+
+      #editor-container .panel-header {
+        padding: 6px 10px;
+        background-color: #f5f5f5;
+        border-bottom: 1px solid #ddd;
+        font-weight: bold;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      #editor {
+        flex: 1;
+        resize: none;
+        width: 100%;
+        height: 100%;
+        padding: 10px;
+        border: none;
+        outline: none;
+        font-family: monospace;
+        font-size: 14px;
+        line-height: 1.5;
+        overflow-y: auto;
+        box-sizing: border-box;
       }
 
       /* 报错信息区域 */
@@ -177,14 +205,40 @@
       }
 
       /* 中间代码样式 */
-      #quadruples {
-        padding: 8px;
-        margin: 0;
-        overflow-y: auto;
-        height: 100%;
-        font-family: monospace;
-        white-space: pre;
+      .quadruple-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+        font-family: "Segoe UI", sans-serif;
+        font-size: 14px;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
       }
+
+      .quadruple-table th,
+      .quadruple-table td {
+        padding: 10px 12px;
+        text-align: left;
+        border-bottom: 1px solid #ddd;
+      }
+
+      .quadruple-table th {
+        background-color: #2c3e50;
+        color: #fff;
+        text-transform: uppercase;
+        font-weight: 600;
+      }
+
+      .quadruple-table tr:nth-child(even) {
+        background-color: #f9f9f9;
+      }
+
+      .quadruple-table tr:hover {
+        background-color: #eef6ff;
+        transition: background-color 0.2s ease-in-out;
+      }
+
 
       /* 错误样式 */
       .cm-error-underline {
@@ -304,18 +358,21 @@
       </div>
     </div>
 
-    <!-- 右侧面板 -->
-    <div id="right-panel">
-      <div id="right-content">
-        <!-- 选项卡选择器 -->
-        <div id="tab-selector">
-          <select id="display-selector">
-            <option value="syntax-tree">Syntax Tree</option>
-            <option value="intermediate-code">Intermediate Code</option>
-          </select>
+  <!-- 右侧面板 -->
+  <div id="right-panel">
+    <div id="right-content">
+      <!-- 选项卡选择器 -->
+      <div id="tab-selector">
+        <select id="display-selector">
+          <option value="syntax-tree">Syntax Tree</option>
+          <option value="intermediate-code">Intermediate Code</option>
+          <option value="parsing-tables">Parsing Tables</option> <!-- 新增选项 -->
+        </select>
+        <div class="tab-controls">
           <button id="zoom-in" title="Zoom In">＋</button>
           <button id="zoom-out" title="Zoom Out">－</button>
         </div>
+      </div>
 
         <!-- 内容显示区域 -->
         <div id="content-display">
@@ -327,15 +384,291 @@
           <!-- 语法树 -->
           <div id="syntax-tree" class="content-pane active">
             <svg id="tree"></svg>
-          </div>
+      <!-- 内容显示区域 -->
+      <div id="content-display">
+        <!-- 语法树 -->
+        <div id="syntax-tree" class="content-pane active">
+          <svg id="tree"></svg>
+        </div>
 
-          <!-- 中间代码 -->
-          <div id="intermediate-code" class="content-pane">
-            <pre id="quadruples"></pre>
+        <!-- 中间代码 -->
+    <div id="intermediate-code" class="content-pane">
+      <div id="quadruples"></div> <!-- 改成 div 容器 -->
+    </div>
+
+        <!-- 新增解析表容器 -->
+        <div id="parsing-tables" class="content-pane">
+          <div class="table-switcher">
+            <button class="table-btn active" data-table-type="action">Action Table</button>
+            <button class="table-btn" data-table-type="goto">Goto Table</button>
+          </div>
+          <div class="tables-wrapper">
+            <div id="action-table" class="parse-table active"></div>
+            <div id="goto-table" class="parse-table"></div>
           </div>
         </div>
       </div>
     </div>
+  </div>
+
+  <style>
+    /* 新增样式 */
+    .tab-controls {
+      display: inline-block;
+      margin-left: 10px;
+    }
+
+    .table-switcher {
+      padding: 8px;
+      background: var(--header-bg);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .table-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--fg-main);
+      padding: 4px 12px;
+      margin-right: 4px;
+      cursor: pointer;
+      border-radius: 4px;
+      transition: all 0.2s;
+    }
+
+    .table-btn.active {
+      background: var(--node-color);
+      color: var(--bg-main);
+      border-color: var(--node-color);
+    }
+
+    .tables-wrapper {
+      flex: 1;
+      overflow: auto;
+      position: relative;
+      height: calc(100% - 40px);
+    }
+
+    .parse-table {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      padding: 10px;
+      display: none;
+      overflow: auto;
+    }
+
+    .parse-table.active {
+      display: block;
+    }
+
+    .parse-table table {
+      border-collapse: collapse;
+      width: max-content;
+      min-width: 100%;
+      font-family: monospace;
+      font-size: 12px;
+      background: var(--bg-main);
+    }
+
+    .parse-table th {
+      background: var(--header-bg);
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      border: 1px solid var(--border);
+      padding: 6px 10px;
+      color: var(--fg-main);
+    }
+
+    .parse-table td {
+      border: 1px solid var(--border);
+      padding: 4px 8px;
+      text-align: center;
+      white-space: nowrap;
+      color: var(--fg-main);
+    }
+
+    .parse-table .shift {
+      color: #4ec9b0;
+    }
+
+    .parse-table .reduce {
+      color: #c586c0;
+    }
+
+    .parse-table .accept {
+      color: #569cd6;
+      font-weight: bold;
+    }
+  </style>
+
+  <script>
+    // 新增表格处理逻辑
+    let parsingTables = { action: null, goto: null };
+
+    // 表格切换功能
+    document.querySelectorAll('.table-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tableType = btn.dataset.tableType;
+        
+        // 切换按钮状态
+        document.querySelectorAll('.table-btn').forEach(b => 
+          b.classList.remove('active'));
+        btn.classList.add('active');
+        
+        // 切换表格显示
+        document.querySelectorAll('.parse-table').forEach(t => 
+          t.classList.remove('active'));
+        document.getElementById(`${tableType}-table`).classList.add('active');
+      });
+    });
+
+    // 生成解析表函数
+    function renderParseTable(containerId, tableData, type) {
+      const container = document.getElementById(containerId);
+      container.innerHTML = '';
+
+      if (!tableData || Object.keys(tableData).length === 0) {
+          container.textContent = `No ${type} table available`;
+          return;
+      }
+    function renderQuadruplesTable(quadruples) {
+      const container = document.getElementById("quadruples");
+      container.innerHTML = ""; // 清空旧内容
+
+      if (!quadruples || quadruples.length === 0) {
+        container.textContent = "No intermediate code generated";
+        return;
+      }
+
+      const table = document.createElement("table");
+      table.className = "quadruples-table";
+
+      // 表头
+      const thead = document.createElement("thead");
+      thead.innerHTML = `
+        <tr>
+          <th>#</th>
+          <th>op</th>
+          <th>arg1</th>
+          <th>arg2</th>
+          <th>result</th>
+        </tr>
+      `;
+      table.appendChild(thead);
+
+      // 表体
+      const tbody = document.createElement("tbody");
+      quadruples.forEach((quad, i) => {
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td>${i.toString().padStart(3, "0")}</td>
+          <td>${quad.op || ""}</td>
+          <td>${quad.arg1 || ""}</td>
+          <td>${quad.arg2 || ""}</td>
+          <td>${quad.result || ""}</td>
+        `;
+        tbody.appendChild(row);
+      });
+      table.appendChild(tbody);
+
+      container.appendChild(table);
+    }
+
+      // 收集所有符号（包括数字键）
+      const symbols = new Set();
+      Object.values(tableData).forEach(entries => {
+          Object.keys(entries).forEach(symbol => {
+              symbols.add(symbol);
+          });
+      });
+      
+      // 将符号转换为数字并排序
+      const sortedSymbols = Array.from(symbols)
+          .map(Number)
+          .sort((a, b) => a - b)
+          .map(String); // 转换回字符串以便作为键使用
+
+      // 创建表格元素
+      const table = document.createElement('table');
+      const thead = document.createElement('thead');
+      const tbody = document.createElement('tbody');
+
+      // 创建表头
+      const headerRow = document.createElement('tr');
+      headerRow.appendChild(createCell('th', 'State'));
+      
+      sortedSymbols.forEach(symbol => {
+          headerRow.appendChild(createCell('th', symbol));
+      });
+      thead.appendChild(headerRow);
+
+      // 创建表格内容
+      Object.entries(tableData)
+          .sort(([a], [b]) => Number(a) - Number(b)) // 按状态编号排序
+          .forEach(([state, actions]) => {
+              const row = document.createElement('tr');
+              row.appendChild(createCell('td', state));
+
+              sortedSymbols.forEach(symbol => {
+                  const action = actions[symbol] || '';
+                  const cell = createCell('td', action);
+
+                  if (type === 'action') {
+                      if (action.startsWith('shift')) {
+                          cell.classList.add('shift');
+                          cell.textContent = `s${action.split(' ')[1]}`; // 简化为"s78"格式
+                      } else if (action.startsWith('reduce')) {
+                          cell.classList.add('reduce');
+                          cell.textContent = `r${action.split(' ')[1]}`; // 简化为"r11"格式
+                      } else if (action === 'accept') {
+                          cell.classList.add('accept');
+                          cell.textContent = 'acc'; // 简化为"acc"
+                      }
+                  } else if (type === 'goto') {
+                      // GOTO表通常只包含数字，不需要特殊处理
+                      if (action) {
+                          cell.textContent = action;
+                      }
+                  }
+
+                  row.appendChild(cell);
+              });
+
+              tbody.appendChild(row);
+          });
+
+      table.appendChild(thead);
+      table.appendChild(tbody);
+      container.appendChild(table);
+  }
+
+  function createCell(tag, content) {
+    const cell = document.createElement(tag);
+    cell.textContent = content;
+    return cell;
+  }
+
+
+    function createCell(tag, content) {
+      const cell = document.createElement(tag);
+      cell.textContent = content;
+      return cell;
+    }
+
+    
+    // 监听选项卡切换事件
+    displaySelector.addEventListener('change', function() {
+      if (this.value === 'parsing-tables' && parsingTables.action) {
+        document.getElementById('action-table').classList.add('active');
+        document.getElementById('goto-table').classList.remove('active');
+        document.querySelector(`.table-btn[data-table-type="action"]`)
+          .classList.add('active');
+        document.querySelector(`.table-btn[data-table-type="goto"]`)
+          .classList.remove('active');
+      }
+    });
+  </script>
 
     <script>
       // 主题切换
@@ -551,6 +884,45 @@
           .style("font-size", "13px")
           .style("pointer-events", "none");
       }
+     function renderQuadruplesTable(containerEl, quadruples) {
+        containerEl.innerHTML = "";
+
+        if (!Array.isArray(quadruples) || quadruples.length === 0) {
+          containerEl.textContent = "No intermediate code generated";
+          return;
+        }
+
+        const table = document.createElement("table");
+        table.className = "quadruple-table"; // 添加样式类名
+
+        const headerRow = document.createElement("tr");
+        const headers = ["Index", "Op", "Arg1", "Arg2", "Result"];
+        headers.forEach((header) => {
+          const th = document.createElement("th");
+          th.textContent = header;
+          headerRow.appendChild(th);
+        });
+        table.appendChild(headerRow);
+
+        quadruples.forEach((quad, i) => {
+          const row = document.createElement("tr");
+          const cells = [
+            i,
+            quad.op || "",
+            quad.arg1 || "",
+            quad.arg2 || "",
+            quad.result || "",
+          ];
+          cells.forEach((value) => {
+            const td = document.createElement("td");
+            td.textContent = value;
+            row.appendChild(td);
+          });
+          table.appendChild(row);
+        });
+
+        containerEl.appendChild(table);
+      }
 
       async function parseCode() {
         const res = await fetch("/api/parse", {
@@ -588,6 +960,37 @@
           errorDisplay.style.display = "none";
 
           updateDisplay(displaySelector.value, data);
+          // ✅ 渲染解析表（action 和 goto）
+          parsingTables = {
+            action: data.action || {},
+            goto: data.goto || {}
+          };
+          renderParseTable("action-table", parsingTables.action, "action");
+          renderParseTable("goto-table", parsingTables.goto, "goto");
+
+          // 确保语法树区域是SVG元素
+          if (!syntaxTreeEl.querySelector("svg")) {
+            syntaxTreeEl.innerHTML = '<svg id="tree"></svg>';
+          }
+
+          // 重新初始化D3元素
+          const svg = d3.select("#tree");
+          let g = svg.select("g");
+          if (g.empty()) {
+            g = svg.append("g").attr("transform", "translate(40,40)");
+            svg.call(zoom);
+          } else {
+            g.selectAll("*").remove();
+          }
+
+          // 渲染语法树
+          if (data.tree) {
+            renderTree(data.tree);
+          }
+
+          // 强制更新中间代码显示
+          renderQuadruplesTable(quadruplesEl, data.quadruples);
+
           markTokens(data.tokens);
         }
       }
@@ -597,6 +1000,6 @@
 
       // 初次渲染
       parseCode();
-    </script>
+          </script>
   </body>
 </html>

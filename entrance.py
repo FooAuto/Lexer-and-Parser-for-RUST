@@ -9,6 +9,28 @@ from contextlib import asynccontextmanager
 from lexer.token import tokenType
 import sys
 from utils.utils import *
+def format_action_table(action):
+    formatted = {}
+    for state_id, entries in enumerate(action):
+        formatted[state_id] = {}
+        for token_id, (act_type, target) in entries.items():
+            if act_type == 0:
+                formatted[state_id][token_id] = "accept"
+            elif act_type == 1:
+                formatted[state_id][token_id] = f"shift {target}"
+            elif act_type == 2:
+                formatted[state_id][token_id] = f"reduce {target}"
+            else:
+                formatted[state_id][token_id] = "error"
+    return formatted
+
+def format_goto_table(goto):
+    formatted = {}
+    for state_id, entries in enumerate(goto):
+        formatted[state_id] = {}
+        for nonterminal_id, target in entries.items():
+            formatted[state_id][nonterminal_id] = str(target)
+    return formatted
 
 
 @asynccontextmanager
@@ -82,12 +104,13 @@ async def api_parse(request: Request):
             },
             "tokens": mark_tokens,
         }
-
     return {
         "tree": result["syntax_tree"],
-        "quadruples": result.get("quadruples", []),  # 添加四元式
+        "quadruples": result.get("quadruples", []),
         "tokens": mark_tokens,
         "success": success,
+        "action":  format_action_table(parser.action_table), 
+        "goto": format_goto_table(parser.goto_table) 
     }
 
 
