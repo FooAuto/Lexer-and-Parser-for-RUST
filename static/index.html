@@ -177,14 +177,40 @@
       }
 
       /* 中间代码样式 */
-      #quadruples {
-        padding: 8px;
-        margin: 0;
-        overflow-y: auto;
-        height: 100%;
-        font-family: monospace;
-        white-space: pre;
+      .quadruple-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+        font-family: "Segoe UI", sans-serif;
+        font-size: 14px;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
       }
+
+      .quadruple-table th,
+      .quadruple-table td {
+        padding: 10px 12px;
+        text-align: left;
+        border-bottom: 1px solid #ddd;
+      }
+
+      .quadruple-table th {
+        background-color: #2c3e50;
+        color: #fff;
+        text-transform: uppercase;
+        font-weight: 600;
+      }
+
+      .quadruple-table tr:nth-child(even) {
+        background-color: #f9f9f9;
+      }
+
+      .quadruple-table tr:hover {
+        background-color: #eef6ff;
+        transition: background-color 0.2s ease-in-out;
+      }
+
 
       /* 错误样式 */
       .cm-error-underline {
@@ -312,9 +338,9 @@
         </div>
 
         <!-- 中间代码 -->
-        <div id="intermediate-code" class="content-pane">
-          <pre id="quadruples"></pre>
-        </div>
+    <div id="intermediate-code" class="content-pane">
+      <div id="quadruples"></div> <!-- 改成 div 容器 -->
+    </div>
 
         <!-- 新增解析表容器 -->
         <div id="parsing-tables" class="content-pane">
@@ -452,6 +478,48 @@
           container.textContent = `No ${type} table available`;
           return;
       }
+    function renderQuadruplesTable(quadruples) {
+      const container = document.getElementById("quadruples");
+      container.innerHTML = ""; // 清空旧内容
+
+      if (!quadruples || quadruples.length === 0) {
+        container.textContent = "No intermediate code generated";
+        return;
+      }
+
+      const table = document.createElement("table");
+      table.className = "quadruples-table";
+
+      // 表头
+      const thead = document.createElement("thead");
+      thead.innerHTML = `
+        <tr>
+          <th>#</th>
+          <th>op</th>
+          <th>arg1</th>
+          <th>arg2</th>
+          <th>result</th>
+        </tr>
+      `;
+      table.appendChild(thead);
+
+      // 表体
+      const tbody = document.createElement("tbody");
+      quadruples.forEach((quad, i) => {
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td>${i.toString().padStart(3, "0")}</td>
+          <td>${quad.op || ""}</td>
+          <td>${quad.arg1 || ""}</td>
+          <td>${quad.arg2 || ""}</td>
+          <td>${quad.result || ""}</td>
+        `;
+        tbody.appendChild(row);
+      });
+      table.appendChild(tbody);
+
+      container.appendChild(table);
+    }
 
       // 收集所有符号（包括数字键）
       const symbols = new Set();
@@ -718,6 +786,45 @@
           .style("font-size", "13px")
           .style("pointer-events", "none");
       }
+     function renderQuadruplesTable(containerEl, quadruples) {
+        containerEl.innerHTML = "";
+
+        if (!Array.isArray(quadruples) || quadruples.length === 0) {
+          containerEl.textContent = "No intermediate code generated";
+          return;
+        }
+
+        const table = document.createElement("table");
+        table.className = "quadruple-table"; // 添加样式类名
+
+        const headerRow = document.createElement("tr");
+        const headers = ["Index", "Op", "Arg1", "Arg2", "Result"];
+        headers.forEach((header) => {
+          const th = document.createElement("th");
+          th.textContent = header;
+          headerRow.appendChild(th);
+        });
+        table.appendChild(headerRow);
+
+        quadruples.forEach((quad, i) => {
+          const row = document.createElement("tr");
+          const cells = [
+            i,
+            quad.op || "",
+            quad.arg1 || "",
+            quad.arg2 || "",
+            quad.result || "",
+          ];
+          cells.forEach((value) => {
+            const td = document.createElement("td");
+            td.textContent = value;
+            row.appendChild(td);
+          });
+          table.appendChild(row);
+        });
+
+        containerEl.appendChild(table);
+      }
 
       // 解析代码
       async function parseCode() {
@@ -779,18 +886,7 @@
           }
 
           // 强制更新中间代码显示
-          quadruplesEl.textContent = ""; // 先清空
-
-          if (data.quadruples && data.quadruples.length > 0) {
-            quadruplesEl.textContent = data.quadruples
-              .map(
-                (quad, i) =>
-                  `${i.toString().padStart(3, "0")}: ${JSON.stringify(quad)}`
-              )
-              .join("\n");
-          } else {
-            quadruplesEl.textContent = "No intermediate code generated";
-          }
+          renderQuadruplesTable(quadruplesEl, data.quadruples);
 
           markTokens(data.tokens);
         }
