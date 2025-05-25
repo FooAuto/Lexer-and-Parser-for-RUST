@@ -9,6 +9,8 @@ from contextlib import asynccontextmanager
 from lexer.token import tokenType
 import sys
 from utils.utils import *
+
+
 def format_action_table(action):
     formatted = {}
     for state_id, entries in enumerate(action):
@@ -23,6 +25,7 @@ def format_action_table(action):
             else:
                 formatted[state_id][token_id] = "error"
     return formatted
+
 
 def format_goto_table(goto):
     formatted = {}
@@ -109,8 +112,8 @@ async def api_parse(request: Request):
         "quadruples": result.get("quadruples", []),
         "tokens": mark_tokens,
         "success": success,
-        "action":  format_action_table(parser.action_table), 
-        "goto": format_goto_table(parser.goto_table) 
+        "action":  format_action_table(parser.action_table),
+        "goto": format_goto_table(parser.goto_table)
     }
 
 
@@ -120,7 +123,7 @@ if __name__ == "__main__":
         # 开发时
         uvicorn.run(
             "entrance:app",
-            host="0.0.0.0",
+            host="127.0.0.1",
             port=8000,
             reload=True
         )
@@ -128,7 +131,7 @@ if __name__ == "__main__":
         # 打包时
         uvicorn.run(
             app,
-            host="0.0.0.0",
+            host="127.0.0.1",
             port=8000,
             reload=False
         )
