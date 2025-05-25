@@ -83,7 +83,7 @@ async def api_parse(request: Request):
         }
 
     return {
-        "tree": result,
+        "tree": result["syntax_tree"],
         "tokens": mark_tokens,
         "success": success
     }
