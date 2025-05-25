@@ -65,7 +65,8 @@ async def api_parse(request: Request):
         return {
             "error": {
                 "content": unk["content"],
-                "loc": unk["loc"]
+                "loc": unk["loc"],
+                "tok": unk  # 添加 tok 字段用于错误高亮
             },
             "tokens": mark_tokens
         }
@@ -77,15 +78,16 @@ async def api_parse(request: Request):
             "error": {
                 "content": result["error"],
                 "loc": result["loc"],
-                "tok": result["token"]
+                "tok": result.get("token", None),  # 添加 tok 字段用于错误高亮
             },
-            "tokens": mark_tokens
+            "tokens": mark_tokens,
         }
 
     return {
         "tree": result["syntax_tree"],
+        "quadruples": result.get("quadruples", []),  # 添加四元式
         "tokens": mark_tokens,
-        "success": success
+        "success": success,
     }
 
 

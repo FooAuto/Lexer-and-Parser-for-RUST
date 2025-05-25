@@ -146,6 +146,19 @@
             height: 100%;
         }
 
+        #quadruples {
+            flex: 0 0 auto;
+            max-height: 200px;
+            overflow-y: auto;
+            padding: 8px;
+            margin: 0;
+            background: var(--header-bg);
+            border-bottom: 1px solid var(--border);
+            font-family: monospace;
+            white-space: pre;
+            display: none;  /* 默认隐藏 */
+        }
+
         /* 错误波浪线 */
         .cm-error-underline {
             text-decoration: red wavy underline;
@@ -289,6 +302,19 @@
             </div>
         </div>
         <div id="error"></div>
+        <svg id="tree"></svg>
+    </div>
+
+    <div id="visual-container">
+        <div id="visual-header">
+            <span>Parser Output</span>
+            <div>
+                <button id="zoom-in" title="放大">＋</button>
+                <button id="zoom-out" title="缩小">－</button>
+            </div>
+        </div>
+        <div id="error"></div>
+        <pre id="quadruples"></pre>  <!-- 新增四元式展示区域 -->
         <svg id="tree"></svg>
     </div>
 
@@ -453,6 +479,45 @@
                 .text(d => d.data.root)
                 .style('font-size', '13px')
                 .style('pointer-events', 'none');  // 防止 hover 时被误触
+        }
+
+        async function parseCode() {
+            const res = await fetch('/api/parse', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code: editor.getValue() })
+            });
+            const data = await res.json();
+
+            clearAllMarks();   // 清理旧标记
+
+            if (data.error) {
+                // 显示错误信息
+                document.getElementById('error').textContent =
+                    `Error: ${data.error.content} (line ${data.error.loc.row}, col ${data.error.loc.col})`;
+                document.getElementById('error').style.display = 'block';
+                document.getElementById('quadruples').style.display = 'none';  // 隐藏四元式
+                g.selectAll('*').remove();
+                markTokens(data.tokens);
+                highlightErrors(data.error, false);
+            } else {
+                // 显示语法树和四元式
+                document.getElementById('error').style.display = 'none';
+                g.selectAll('*').remove();
+                markTokens(data.tokens);
+                renderTree(data.tree);
+
+                // 显示四元式
+                const quadruplesEl = document.getElementById('quadruples');
+                if (data.quadruples && data.quadruples.length > 0) {
+                    quadruplesEl.textContent = data.quadruples
+                        .map((quad, i) => `${i.toString().padStart(3, '0')}: ${JSON.stringify(quad)}`)
+                        .join('\n');
+                    quadruplesEl.style.display = 'block';
+                } else {
+                    quadruplesEl.style.display = 'none';
+                }
+            }
         }
 
 
