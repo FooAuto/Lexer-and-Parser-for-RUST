@@ -1128,54 +1128,72 @@ class SemanticAnalyzer:
 
     # Rule 5.3: loop <block> (and loop expression)
     def process_loop_begin(self, is_expression, line_num):
+
         loop_start_label = self._new_label()
-        loop_end_label = self._new_label()  # break jumps here
+        loop_end_label = self._new_label()
+        
         self.add_quad("LABEL", result=loop_start_label)
+        label_quad = self.quadruples.pop()
 
         loop_ctx = {
             "type": "loop",
             "start_label": loop_start_label,
             "end_label": loop_end_label,
+            "line_num": line_num
         }
+
         if is_expression:
             loop_ctx["is_expr_loop"] = True
-            loop_ctx["expr_type"] = (
-                "unknown_inferred"  # To be inferred from 'break <expr>'
-            )
-            loop_ctx["result_place"] = (
-                self._new_temp()
-            )  # To store the loop expression's result
+            loop_ctx["expr_type"] = "unknown_inferred" 
+            loop_ctx["result_place"] = self._new_temp()
+        
         self.loop_stack.append(loop_ctx)
-        return {"quads": [self.quadruples[-1]], "loop_ctx": loop_ctx}
+        
+        return {
+            "quads": [label_quad], 
+            "loop_ctx": loop_ctx 
+        }
 
     def process_loop_end(self, loop_data, line_num):
+        if not loop_data or "loop_ctx" not in loop_data:
+            raise SemanticError("Internal error: loop_data missing or malformed in process_loop_end.", line_num)
+
         loop_ctx = loop_data["loop_ctx"]
-        
+
         quads_added_by_this_func = []
 
-        if not loop_ctx.get("is_expr_loop"):
+        # 1. 从 loop_stack 中弹出当前循环上下文，并进行校验
+        if not (self.loop_stack and \
+                self.loop_stack[-1]["type"] == loop_ctx["type"] and \
+                self.loop_stack[-1]["start_label"] == loop_ctx["start_label"]): # 确保栈顶与传入的ctx匹配
+            err_msg = "Mismatched loop structure (end). "
+            if not self.loop_stack:
+                err_msg += "Loop stack is empty."
+            else:
+                err_msg += f"Expected loop starting at L{loop_ctx['start_label']}, but stack top is L{self.loop_stack[-1]['start_label']} of type {self.loop_stack[-1]['type']}."
+            raise SemanticError(err_msg, line_num)
+
+        self.loop_stack.pop() # 弹出上下文
+
+        # 2. 根据循环类型生成特定结尾四元式
+        if loop_ctx["type"] == "loop" and not loop_ctx.get("is_expr_loop"): 
             self.add_quad("JUMP", result=loop_ctx["start_label"])
             quads_added_by_this_func.append(self.quadruples.pop())
 
         self.add_quad("LABEL", result=loop_ctx["end_label"])
         quads_added_by_this_func.append(self.quadruples.pop())
 
-        if not (self.loop_stack and \
-                self.loop_stack[-1]["type"] == "loop" and \
-                self.loop_stack[-1]["start_label"] == loop_ctx["start_label"]):
-            raise SemanticError("Mismatched loop structure (loop exit). Incorrect loop context on stack.", line_num)
-        self.loop_stack.pop()
-
+        # 3. 准备返回属性
         result_attrs = {"quads": quads_added_by_this_func}
 
-        if loop_ctx.get("is_expr_loop"):
+        if loop_ctx.get("is_expr_loop"): # 特指 LoopExpression
             if loop_ctx["expr_type"] == "unknown_inferred":
                 result_attrs["type"] = "void" 
-                result_attrs["place"] = None
-            else:
+                result_attrs["place"] = None 
+            else: # 类型已由 'break <value>;' 推断
                 result_attrs["type"] = loop_ctx["expr_type"]
                 result_attrs["place"] = loop_ctx["result_place"]
-        else: 
+        else: # 对于普通 loop 语句 (以及 while, for 语句)
             result_attrs["type"] = "void" 
 
         return result_attrs
@@ -1481,17 +1499,18 @@ class SemanticAnalyzer:
 
         return {"type": final_tuple_type, "place": tuple_place, "code": quads}
 
-    def process_loop_statement(self, body_block_attrs, line_num):
-        loop_data_from_begin = self.process_loop_begin(is_expression=False, line_num=line_num)
+    # depreciated
+    # def process_loop_statement(self, body_block_attrs, line_num):
+    #     loop_data_from_begin = self.process_loop_begin(is_expression=False, line_num=line_num)
 
-        all_quads = []
-        all_quads.extend(loop_data_from_begin.get("quads", []))
-        all_quads.extend(body_block_attrs.get("code", []))
+    #     all_quads = []
+    #     all_quads.extend(loop_data_from_begin.get("quads", []))
+    #     all_quads.extend(body_block_attrs.get("code", []))
 
-        attrs_from_end = self.process_loop_end(loop_data_from_begin, line_num)
-        all_quads.extend(attrs_from_end.get("quads", []))
+    #     attrs_from_end = self.process_loop_end(loop_data_from_begin, line_num)
+    #     all_quads.extend(attrs_from_end.get("quads", []))
 
-        return {"code": all_quads, "type": "void"}
+    #     return {"code": all_quads, "type": "void"}
 
 
 
@@ -2412,6 +2431,69 @@ class SemanticAnalyzer:
             end_attrs = self.process_while_loop_end({"loop_ctx": current_loop_ctx, "start_label": current_loop_ctx["start_label"], "end_label": current_loop_ctx["end_label"]}, line_num_approx)
             
             return {"quads": end_attrs.get("quads", [])}
+        elif production_rule_str == "LoopExprMarkerBegin -> LOOP":
+            loop_token = get_token_obj_from_child(0)
+            line_num = loop_token['loc']['row'] if loop_token and 'loc' in loop_token else line_num_approx
+            
+            # 调用 process_loop_begin，标记为表达式，它会压栈 loop_stack
+            # 并返回其生成的四元式 (如 LABEL) 和 loop_ctx (包含标签等信息)
+            attrs_from_begin = self.process_loop_begin(is_expression=True, line_num=line_num)
+            return attrs_from_begin
+        
+        elif production_rule_str == "LoopExpression -> LoopExprMarkerBegin StatementBlock LoopExprMarkerEnd":
+            begin_attrs = get_child_attrs(0)
+            body_attrs = get_child_attrs(1)
+            end_attrs = get_child_attrs(2)
+
+            # 按顺序合并所有四元式
+            all_quads = []
+            all_quads.extend(begin_attrs.get("quads", []))
+            all_quads.extend(body_attrs.get("code", []))
+            all_quads.extend(end_attrs.get("quads", []))
+            
+            return {
+                "type": end_attrs.get("type"),
+                "place": end_attrs.get("place"),
+                "code": all_quads
+            }
+
+        elif production_rule_str == "LoopExprMarkerEnd -> epsilon":
+            if not self.loop_stack or self.loop_stack[-1]["type"] != "loop" or not self.loop_stack[-1].get("is_expr_loop"):
+                raise SemanticError("Internal error: LoopExprMarkerEnd reached with invalid or missing 'loop expression' context on loop_stack.", line_num_approx)
+            
+            loop_ctx_from_stack = self.loop_stack[-1] # 获取上下文
+            
+            attrs_from_end = self.process_loop_end({"loop_ctx": loop_ctx_from_stack}, line_num_approx)
+            return attrs_from_end 
+
+        elif production_rule_str == "LoopStmtMarkerBegin -> LOOP":
+            loop_token = get_token_obj_from_child(0)
+            line_num = loop_token['loc']['row'] if loop_token and 'loc' in loop_token else line_num_approx
+            
+            attrs_from_begin = self.process_loop_begin(is_expression=False, line_num=line_num)
+            return attrs_from_begin
+
+        elif production_rule_str == "LoopStatement -> LoopStmtMarkerBegin StatementBlock LoopStmtMarkerEnd":
+            begin_attrs = get_child_attrs(0)
+            body_attrs = get_child_attrs(1)
+            end_attrs = get_child_attrs(2)
+
+            all_quads = []
+            all_quads.extend(begin_attrs.get("quads", []))
+            all_quads.extend(body_attrs.get("code", []))
+            all_quads.extend(end_attrs.get("quads", []))
+            
+            return {"code": all_quads, "type": "void"}
+
+        elif production_rule_str == "LoopStmtMarkerEnd -> epsilon":
+            if not self.loop_stack or self.loop_stack[-1]["type"] != "loop" or self.loop_stack[-1].get("is_expr_loop"):
+                raise SemanticError("Internal error: LoopStmtMarkerEnd reached with invalid or missing 'loop statement' context on loop_stack.", line_num_approx)
+            
+            loop_ctx_from_stack = self.loop_stack[-1]
+            
+            attrs_from_end = self.process_loop_end({"loop_ctx": loop_ctx_from_stack}, line_num_approx)
+            return attrs_from_end
+
         else: # NOT ALLOWED！！！
             print(
                 f"警告: dispatch_semantic_action 中 '{production_rule_str}' (行 ~{line_num_approx}) 未精确匹配，使用默认聚合/传递。"
@@ -2560,29 +2642,30 @@ class SemanticAnalyzer:
         return {"code": total_code}
 
     # 5.3 loop语句整体处理
-    def process_loop_expression(self, body_block_attrs, line_num):
-        """
-        处理 loop 表达式形式（即作为表达式的 loop，而非语句），
-        如 Rust 中的: `let x = loop { if cond { break 42; } }`
-        """
-        # Step 1: 开始 loop 表达式
-        loop_data = self.process_loop_begin(is_expression=True, line_num=line_num)
+    # depreciated
+    # def process_loop_expression(self, body_block_attrs, line_num):
+    #     """
+    #     处理 loop 表达式形式（即作为表达式的 loop，而非语句），
+    #     如 Rust 中的: `let x = loop { if cond { break 42; } }`
+    #     """
+    #     # Step 1: 开始 loop 表达式
+    #     loop_data = self.process_loop_begin(is_expression=True, line_num=line_num)
 
-        # Step 2: 生成 loop 体中间代码
-        quads = []
-        quads.extend(loop_data["quads"])  # loop start LABEL
-        quads.extend(body_block_attrs.get("code", []))
+    #     # Step 2: 生成 loop 体中间代码
+    #     quads = []
+    #     quads.extend(loop_data["quads"])  # loop start LABEL
+    #     quads.extend(body_block_attrs.get("code", []))
 
-        # Step 3: 结束 loop，获取返回表达式的属性
-        result_attrs = self.process_loop_end(loop_data, line_num)
-        quads.extend(result_attrs.get("quads", []))  # end LABEL + break assign quads
+    #     # Step 3: 结束 loop，获取返回表达式的属性
+    #     result_attrs = self.process_loop_end(loop_data, line_num)
+    #     quads.extend(result_attrs.get("quads", []))  # end LABEL + break assign quads
 
-        # Step 4: 返回表达式类型、结果存储变量及中间代码
-        return {
-            "type": result_attrs.get("type"),
-            "place": result_attrs.get("place"),
-            "code": quads,
-        }
+    #     # Step 4: 返回表达式类型、结果存储变量及中间代码
+    #     return {
+    #         "type": result_attrs.get("type"),
+    #         "place": result_attrs.get("place"),
+    #         "code": quads,
+    #     }
 
     # 5.2 for循环整体处理，无process_for_loop属性
     def process_for_loop(
