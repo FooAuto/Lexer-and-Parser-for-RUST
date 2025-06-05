@@ -8,5 +8,30 @@
 语法分析中调用的```dispatch_semantic_action()```函数是一个调度函数。它会根据这一次规约使用的产生式，决定调用哪个函数去处理（处理就是做语义分析）。语义具体分析的流程就类似PPT里对于各类语句的语义分析。
 
 ### TODO：
-1. 函数声明在函数调用前不会出错，但是函数声明在后会导致出错找不到函数。可能需要修改`lexparser.py`，添加函数预声明功能（即预先遍历全部函数并添加到符号表中）。
-2. break、continue时loop stack永远为空。因为在翻译“WhileStatement -> WHILE Expression StatementBlock”时get_child_attrs()会提前处理loop stack中的信息，导致loop stack为空，所以处理break、continue时永远报错。
+1. 3.3 函数调用
+
+```
+ fn program_3_3__5__a() {
+ }
+ fn program_3_3__5__b() {
+ let mut a=program_3_3__5__a();
+ }
+```
+
+应该报错：无返回值函数不能作为右值
+
+但是正常解析
+
+2. 7.4 循环表达式
+
+```
+fn program_7_4() {
+    let mut a=loop {
+    break 2;
+    };
+}
+```
+
+应该正常解析，但是报错
+
+**'break' statement outside of a loop**
