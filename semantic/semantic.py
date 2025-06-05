@@ -155,7 +155,7 @@ class SemanticAnalyzer:
             return f"({', '.join(self.get_type_name(t) for t in data_type)})"
         return "unknown_type"
 
-    def check_type_compatibility(self, type1, type2, line_num, allow_ref_deref=True):
+    def check_type_compatibility(self, type1, type2, line_num, allow_ref_deref=True, error_message_override=None):
         """
         Checks if type2 can be assigned to or used where type1 is expected.
         Includes basic reference compatibility (e.g., &T can be used for &T, T for *&T).
@@ -166,29 +166,32 @@ class SemanticAnalyzer:
         if s_type1 == s_type2:
             return True
 
-        # Allow assigning T to an uninitialized let binding without explicit type
         if type1 == "unknown_inferred":
-            return True
+            # 如果左侧是待推断类型，且右侧是 void，这是不允许的
+            if type2 == "void":
+                err_msg = error_message_override or f"Cannot assign a 'void' value to a variable whose type is to be inferred."
+                raise SemanticError(err_msg, line_num)
+            return True # 允许推断为任何非 void 类型
+
+        if type2 == "void" and type1 != "void":
+            err_msg = error_message_override or f"Cannot assign a 'void' value to a variable of type {s_type1}."
+            raise SemanticError(err_msg, line_num)
+
 
         # Dereferencing: if type1 is T and type2 is &T or &mut T
         if allow_ref_deref:
             if isinstance(type2, list) and type2[0] in [
                 "&",
                 "&mut",
-            ]:  # type2 is a reference
+            ]:
                 deref_type2 = (
                     type2[1] if type2[0] == "&" else type2[1]
-                )  # type2[1] is T in &T or &mut T
+                )
                 if self.get_type_name(type1) == self.get_type_name(deref_type2):
-                    # This case is usually handled by explicit deref '*' op,
-                    # but some languages allow auto-deref in assignments.
-                    # For this Rust-like lang, explicit deref is better.
-                    # So, this direct compatibility might be too lenient without a '*'
-                    pass  # Potentially allow if context implies dereference
+                    pass
 
-        raise SemanticError(
-            f"Type mismatch: expected {s_type1}, found {s_type2}.", line_num
-        )
+        default_err_msg = f"Type mismatch: expected {s_type1}, found {s_type2}."
+        raise SemanticError(error_message_override or default_err_msg, line_num)
 
     # 罗列具体的语义规则与语义分析
     # Rule 0.1: <变量声明内部> -> mut <ID>
@@ -453,6 +456,7 @@ class SemanticAnalyzer:
             )
 
         lvalue_handled = False
+        target_type_for_check = None # 用于存储左值的类型
 
         # 情况1: 简单变量赋值 (例如: x = 10)
         if assignable_attrs.get("sym_type") in [SymbolType.VARIABLE, SymbolType.PARAMETER]:
@@ -464,15 +468,19 @@ class SemanticAnalyzer:
                     line_num,
                 )
 
+            target_type_for_check = lvalue_entry.data_type
             if lvalue_entry.data_type == "unknown_inferred":
-                lvalue_entry.data_type = expr_attrs["type"]
-            else:
-                self.check_type_compatibility(
-                    lvalue_entry.data_type, expr_attrs["type"], line_num
+                # 如果左值类型之前是未推断的，现在用右值的类型来确定它
+                self.check_type_compatibility(lvalue_entry.data_type, expr_attrs["type"], line_num,
+                    error_message_override=f"Cannot infer type of variable '{lvalue_entry.name}' from a void expression."
                 )
+                lvalue_entry.data_type = expr_attrs["type"]
+                target_type_for_check = lvalue_entry.data_type # 更新用于后续检查的类型
             
             lvalue_entry.initialized = True
-
+            
+            # self.check_type_compatibility(lvalue_entry.data_type, expr_attrs["type"], line_num)
+            
             self.add_quad("ASSIGN", expr_attrs["place"], result=assignable_attrs["place"])
             quads.append(self.quadruples.pop())
             lvalue_handled = True
@@ -482,33 +490,35 @@ class SemanticAnalyzer:
             is_array_or_tuple_element = assignable_attrs.get("sym_type") in [SymbolType.ARRAY, SymbolType.TUPLE]
 
             if is_array_or_tuple_element:
-                # 对于数组或元组元素，检查其基底是否可变
                 if not assignable_attrs.get("base_is_mutable"):
                     raise SemanticError(
                         f"Cannot assign to element of immutable base '{assignable_attrs.get('name', 'container')}'.",
                         line_num,
                     )
-            else: # 对于解引用，例如 *b
+            else: 
                 if not assignable_attrs.get("is_mutable"):
                     raise SemanticError(
                         f"Cannot assign to content of dereferenced immutable reference/pointer.",
                         line_num,
                     )
             
-            self.check_type_compatibility(
-                assignable_attrs["type"], expr_attrs["type"], line_num
-            )
+            target_type_for_check = assignable_attrs["type"] # 左值（如 *ptr 或 arr[i]）的类型
             
             self.add_quad("STORE", expr_attrs["place"], assignable_attrs["place"])
             quads.append(self.quadruples.pop())
             lvalue_handled = True
         
         if not lvalue_handled:
-            # 左值的结构未被上述条件识别
-            original_error_msg = f"Unknown assignable type: {assignable_attrs}" # 原始错误是这个
             raise SemanticError(
                 f"Internal Error: Unhandled LValue structure in assignment. Attributes: {assignable_attrs}", line_num
             )
+
+        if target_type_for_check is None: # 理论上不应发生
+            raise SemanticError("Internal error: Target type for assignment not determined.", line_num)
+
+        self.check_type_compatibility(target_type_for_check, expr_attrs["type"], line_num,
+            error_message_override=f"Cannot assign expression of type {self.get_type_name(expr_attrs['type'])} to lvalue of type {self.get_type_name(target_type_for_check)}."
+        )
         
         return {"code": quads}
 
@@ -523,13 +533,26 @@ class SemanticAnalyzer:
         quads = []
         quads.extend(expr_attrs.get("code", []))
 
-        var_type = expr_attrs["type"]
-        if type_attrs:  # Explicit type given
+        var_type = expr_attrs["type"] # 先用表达式的类型作为推断类型
+
+        # 如果表达式类型是
+        if expr_attrs["type"] == "void":
+            pass # 让 check_type_compatibility 决定
+
+        if type_attrs:  # 如果给定了显式类型
             explicit_type = type_attrs["type"]
             if "code" in type_attrs:
                 quads.extend(type_attrs["code"])
-            self.check_type_compatibility(explicit_type, expr_attrs["type"], line_num)
-            var_type = explicit_type  # Use the declared type
+            
+            self.check_type_compatibility(explicit_type, expr_attrs["type"], line_num,
+                error_message_override=f"Cannot initialize variable '{var_name}' of type {self.get_type_name(explicit_type)} with an expression of type {self.get_type_name(expr_attrs['type'])}."
+            )
+            var_type = explicit_type  # 使用声明的类型
+        elif var_type == "void": # 如果没有显式类型，且推断出是 void
+             raise SemanticError(
+                f"Cannot declare variable '{var_name}' with inferred type 'void' from a void expression.", line_num
+            )
+
 
         self.add_symbol(
             var_name,
