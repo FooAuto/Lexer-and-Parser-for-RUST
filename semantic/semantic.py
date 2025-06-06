@@ -53,11 +53,11 @@ class SymbolTableEntry:
 
 
 class SemanticError(Exception):
-    def __init__(self, message, line_num=None):
+    def __init__(self, message, loc=None):
         self.message = message
-        self.line_num = line_num
+        self.loc = loc if loc else {'row': '?', 'col': '?'}
         super().__init__(
-            f"Semantic Error: {message}" + (f" at line {line_num}" if line_num else "")
+            f"Semantic Error: {message}" + (f" at line {self.loc.get('row', '?')}" if loc else "")
         )
 
 
@@ -1540,9 +1540,7 @@ class SemanticAnalyzer:
             level += 1
         print("--------------------")
 
-    def dispatch_semantic_action(
-        self, production_rule_str, children_attrs, line_num_approx
-    ):
+    def dispatch_semantic_action(self, production_rule_str, children_attrs, approx_loc):
         """
         根据产生式字符串，调度到相应的语义处理函数。
         """
@@ -1591,14 +1589,14 @@ class SemanticAnalyzer:
             mut_token = get_token_obj_from_child(0)
             identifier_token = get_token_obj_from_child(1)
             attrs = self.process_variable_decl_internal(
-                identifier_token, mut_token, line_num_approx
+                identifier_token, mut_token, approx_loc
             )
             attrs["code"] = []  # 此规则本身不产生代码，但返回的属性应有code字段
             return attrs
         elif production_rule_str == "VariableDeclarationInner -> IDENTIFIER":
             identifier_token = get_token_obj_from_child(0)
             attrs = self.process_variable_decl_internal(
-                identifier_token, None, line_num_approx
+                identifier_token, None, approx_loc
             )
             attrs["code"] = []
             return attrs
@@ -1608,17 +1606,17 @@ class SemanticAnalyzer:
             identifier_token = get_token_obj_from_child(0)
             # process_assignable_element 返回的字典应包含 'code' (通常为空)
             return self.process_assignable_element(
-                {"type": "id", "token": identifier_token}, line_num_approx
+                {"type": "id", "token": identifier_token}, approx_loc
             )
         elif (
             production_rule_str == "Assignable -> MULT IDENTIFIER"
         ):  # 假设 MULT 是解引用 '*'
             # id_attrs 应包含 'code' (来自可能的复杂IDENTIFIER的解析)
             id_attrs = self.process_assignable_element(
-                {"type": "id", "token": get_token_obj_from_child(1)}, line_num_approx
+                {"type": "id", "token": get_token_obj_from_child(1)}, approx_loc
             )
             # process_reference_op 应返回包含解引用代码的 'code'
-            ref_op_attrs = self.process_reference_op("*", id_attrs, line_num_approx)
+            ref_op_attrs = self.process_reference_op("*", id_attrs, approx_loc)
             # 合并代码
             combined_code = id_attrs.get("code", []) + ref_op_attrs.get("code", [])
             ref_op_attrs["code"] = combined_code
@@ -1633,7 +1631,7 @@ class SemanticAnalyzer:
             # process_assignable_element 处理数组访问时，会合并 base 和 index 的 code
             return self.process_assignable_element(
                 {"type": "array_access", "base": primary_attrs, "index": expr_attrs},
-                line_num_approx,
+                approx_loc,
             )
         elif (
             production_rule_str == "Assignable -> Primary DOT INTEGER_CONSTANT"
@@ -1646,7 +1644,7 @@ class SemanticAnalyzer:
                     "base": primary_attrs,
                     "index_token": index_token,
                 },
-                line_num_approx,
+                approx_loc,
             )
 
         # --- Type Productions ---
@@ -1676,11 +1674,11 @@ class SemanticAnalyzer:
             try:
                 size = int(size_token["content"])
                 if size <= 0:
-                    raise SemanticError("数组大小必须为正整数。", line_num_approx)
+                    raise SemanticError("数组大小必须为正整数。", approx_loc)
             except:
                 raise SemanticError(
                     f"无效的数组大小: {size_token['content'] if size_token else '未知'}",
-                    line_num_approx,
+                    approx_loc,
                 )
             return {
                 "type": ["[", element_type_attrs.get("type"), size],
@@ -1749,7 +1747,7 @@ class SemanticAnalyzer:
             # 从 process_function_body_end 获取 FUNC_END 四元式并合并
             # 假设 func_header_attrs['name'] 总是存在且正确
             end_attrs = self.process_function_body_end(
-                func_header_attrs.get("name"), line_num_approx
+                func_header_attrs.get("name"), approx_loc
             )
             combined_code.extend(end_attrs.get("code", []))
 
@@ -1781,14 +1779,14 @@ class SemanticAnalyzer:
                     err_line = (
                         block_expr_attrs.get("token_obj", {})
                         .get("loc", {})
-                        .get("row", line_num_approx)
+                        .get("row", approx_loc)
                     )
                     raise SemanticError(
                         f"Function '{func_header_attrs.get('name')}' expects a return value of type {self.get_type_name(func_return_type)}, but block expression returns void.",
                         err_line,
                     )
                 self.check_type_compatibility(
-                    func_return_type, block_expr_type, line_num_approx
+                    func_return_type, block_expr_type, approx_loc
                 )
                 # 创建 RETURN_VAL 四元式 (之前是 add_quad 后 pop，现在直接创建)
                 temp_return_quad = Quadruple("RETURN_VAL", block_expr_place, None, None)
@@ -1803,7 +1801,7 @@ class SemanticAnalyzer:
             # 从 process_function_body_end 获取 FUNC_END 四元式并合并
             end_attrs = self.process_function_body_end(
                 func_header_attrs.get("name"),
-                line_num_approx,
+                approx_loc,
                 last_expr_attrs_for_implicit_return=block_expr_attrs,
             )
             combined_code.extend(end_attrs.get("code", []))
@@ -1825,7 +1823,7 @@ class SemanticAnalyzer:
                 id_token,
                 param_list_cont_attrs.get("params", []),
                 "void",
-                line_num_approx,
+                approx_loc,
             )
         elif (
             production_rule_str
@@ -1838,7 +1836,7 @@ class SemanticAnalyzer:
                 id_token,
                 param_list_cont_attrs.get("params", []),
                 return_type_attrs.get("type"),
-                line_num_approx,
+                approx_loc,
             )
 
         elif production_rule_str == "ParameterList -> epsilon":
@@ -1872,7 +1870,7 @@ class SemanticAnalyzer:
                 "name": var_decl_inner_attrs.get("name"),
                 "is_mutable": var_decl_inner_attrs.get("is_mutable", False),
                 "type": type_attrs.get("type"),
-                "line": var_decl_inner_attrs.get("line", line_num_approx),
+                "line": var_decl_inner_attrs.get("line", approx_loc),
                 "token_obj": var_decl_inner_attrs.get("token_obj"),
                 "code": combined_code,
             }
@@ -1905,14 +1903,14 @@ class SemanticAnalyzer:
             type_attrs = get_child_attrs(3)
             # process_variable_declaration 应返回包含 'code' 的属性
             return self.process_variable_declaration(
-                var_decl_inner_attrs, type_attrs, line_num_approx
+                var_decl_inner_attrs, type_attrs, approx_loc
             )
         elif (
             production_rule_str == "Statement -> LET VariableDeclarationInner SEMICOLON"
         ):
             var_decl_inner_attrs = get_child_attrs(1)
             return self.process_variable_declaration(
-                var_decl_inner_attrs, None, line_num_approx
+                var_decl_inner_attrs, None, approx_loc
             )
         elif production_rule_str == "Statement -> AssignmentStatement":
             return get_child_attrs(0)
@@ -1933,21 +1931,21 @@ class SemanticAnalyzer:
             return get_child_attrs(0)
         elif production_rule_str == "Statement -> BREAK SEMICOLON":
             break_token = get_token_obj_from_child(0)
-            return self.process_break_continue(break_token, None, line_num_approx)
+            return self.process_break_continue(break_token, None, approx_loc)
         elif production_rule_str == "Statement -> CONTINUE SEMICOLON":
             continue_token = get_token_obj_from_child(0)
-            return self.process_break_continue(continue_token, None, line_num_approx)
+            return self.process_break_continue(continue_token, None, approx_loc)
         elif production_rule_str == "Statement -> BREAK Expression SEMICOLON":
             break_token = get_token_obj_from_child(0)
             expr_attrs = get_child_attrs(1)
-            return self.process_break_continue(break_token, expr_attrs, line_num_approx)
+            return self.process_break_continue(break_token, expr_attrs, approx_loc)
 
         # --- ReturnStatement ---
         elif production_rule_str == "ReturnStatement -> RETURN SEMICOLON":
-            return self.process_return_statement(None, line_num_approx)
+            return self.process_return_statement(None, approx_loc)
         elif production_rule_str == "ReturnStatement -> RETURN Expression SEMICOLON":
             expr_attrs = get_child_attrs(1)
-            return self.process_return_statement(expr_attrs, line_num_approx)
+            return self.process_return_statement(expr_attrs, approx_loc)
 
         # --- AssignmentStatement ---
         elif (
@@ -1970,7 +1968,7 @@ class SemanticAnalyzer:
             }
             # process_assignment 应返回包含 'code' (ASSIGN四元式) 的属性
             assign_attrs = self.process_assignment(
-                simulated_assignable_attrs, expr_attrs, line_num_approx
+                simulated_assignable_attrs, expr_attrs, approx_loc
             )
             # 合并来自 VariableDeclarationInner (如果有) 和 expr_attrs (如果有) 和 assign_attrs 的代码
             # 但通常前两者代码在 assign_attrs['code'] 中已由 process_assignment 合并
@@ -1986,7 +1984,7 @@ class SemanticAnalyzer:
             expr_attrs = get_child_attrs(2)  # Expression 应包含其自身的 code
             # process_assignment 返回的 'code' 应包含 Assignable, Expression 的 code, 以及新的 ASSIGN 四元式
             return self.process_assignment(
-                assignable_attrs, expr_attrs, line_num_approx
+                assignable_attrs, expr_attrs, approx_loc
             )
 
         # --- VariableDeclarationAssignmentStatement ---
@@ -1998,7 +1996,7 @@ class SemanticAnalyzer:
             expr_attrs = get_child_attrs(3)
             # process_variable_declaration_assignment 返回的字典应包含 'code' (内含 ASSIGN)
             return self.process_variable_declaration_assignment(
-                var_decl_inner_attrs, None, expr_attrs, line_num_approx
+                var_decl_inner_attrs, None, expr_attrs, approx_loc
             )
         elif (
             production_rule_str
@@ -2008,7 +2006,7 @@ class SemanticAnalyzer:
             type_attrs = get_child_attrs(3)
             expr_attrs = get_child_attrs(5)
             return self.process_variable_declaration_assignment(
-                var_decl_inner_attrs, type_attrs, expr_attrs, line_num_approx
+                var_decl_inner_attrs, type_attrs, expr_attrs, approx_loc
             )
 
         # --- Expressions (Chain rules) ---
@@ -2032,7 +2030,7 @@ class SemanticAnalyzer:
             op_token = comp_op_attrs.get("token_obj")
             # process_binary_op 返回的字典应包含 'code' (操作的四元式 + 子表达式的 code)
             return self.process_binary_op(
-                op_token, left_expr_attrs, right_add_expr_attrs, line_num_approx
+                op_token, left_expr_attrs, right_add_expr_attrs, approx_loc
             )
         elif (
             production_rule_str == "AdditionExpression -> AdditionExpression AddOp Term"
@@ -2042,7 +2040,7 @@ class SemanticAnalyzer:
             right_term_attrs = get_child_attrs(2)
             op_token = add_op_attrs.get("token_obj")
             return self.process_binary_op(
-                op_token, left_add_expr_attrs, right_term_attrs, line_num_approx
+                op_token, left_add_expr_attrs, right_term_attrs, approx_loc
             )
         elif production_rule_str == "Term -> Term MulOp Factor":
             left_term_attrs = get_child_attrs(0)
@@ -2050,14 +2048,14 @@ class SemanticAnalyzer:
             right_factor_attrs = get_child_attrs(2)
             op_token = mul_op_attrs.get("token_obj")
             return self.process_binary_op(
-                op_token, left_term_attrs, right_factor_attrs, line_num_approx
+                op_token, left_term_attrs, right_factor_attrs, approx_loc
             )
 
         # --- Primary Expressions ---
         elif production_rule_str == "Primary -> INTEGER_CONSTANT":
             num_token = get_token_obj_from_child(0)
             # process_element 返回的字典应包含 'code' (通常为空，因为常量不产生指令)
-            return self.process_element(num_token, line_num_approx)
+            return self.process_element(num_token, approx_loc)
         elif production_rule_str == "Primary -> MINUS INTEGER_CONSTANT":
             minus_token = get_token_obj_from_child(0)  # Token for MINUS
             num_token = get_token_obj_from_child(1)  # Token for INTEGER_CONSTANT
@@ -2069,16 +2067,16 @@ class SemanticAnalyzer:
                 "token_obj": None,
             }  # 构造一个临时的0
             num_attrs = self.process_element(
-                num_token, line_num_approx
+                num_token, approx_loc
             )  # 获取数字的属性
             # process_binary_op 将合并 zero_attrs.code, num_attrs.code, 和 SUB 的代码
             return self.process_binary_op(
-                minus_token, zero_attrs, num_attrs, line_num_approx
+                minus_token, zero_attrs, num_attrs, approx_loc
             )
         elif production_rule_str == "Primary -> Assignable":
             assignable_attrs = get_child_attrs(0)
             # process_element 会处理将左值用作右值（可能需要LOAD）并返回 'code'
-            return self.process_element(assignable_attrs, line_num_approx)
+            return self.process_element(assignable_attrs, approx_loc)
         elif production_rule_str == "Primary -> LPAREN Expression RPAREN":
             return get_child_attrs(1)  # 传递 Expression 的属性，包括 code
         elif production_rule_str == "Primary -> IDENTIFIER LPAREN ArgumentList RPAREN":
@@ -2087,7 +2085,7 @@ class SemanticAnalyzer:
             args_list = arg_list_cont_attrs.get("args", [])
             # process_function_call 返回的字典应包含 'code' (内含 PARAM 和 CALL 四元式 + 参数表达式的 code)
             func_call_attrs = self.process_function_call(
-                id_token, args_list, line_num_approx
+                id_token, args_list, approx_loc
             )
             # 参数列表本身也可能有代码（来自其内部表达式）
             # process_function_call 应该已经合并了参数的代码
@@ -2108,14 +2106,14 @@ class SemanticAnalyzer:
             )  # 应包含 'elements' 和这些 elements 的 'code'
             # process_array_literal 返回的字典应包含 'code' (ARRAY_INIT, ARRAY_SET 等)
             return self.process_array_literal(
-                array_elements_attrs.get("elements", []), None, line_num_approx
+                array_elements_attrs.get("elements", []), None, approx_loc
             )
         elif (
             production_rule_str == "Primary -> LPAREN TupleAssignmentInternal RPAREN"
         ):  # 元组字面量
             tuple_internal_attrs = get_child_attrs(1)
             return self.process_tuple_literal(
-                tuple_internal_attrs.get("elements", []), None, line_num_approx
+                tuple_internal_attrs.get("elements", []), None, approx_loc
             )
 
         # --- Operators (passing up token_obj) ---
@@ -2209,7 +2207,7 @@ class SemanticAnalyzer:
         elif production_rule_str == "Factor -> LBRACK ArrayElementsList RBRACK":
             array_elements_list_attrs = get_child_attrs(1)
             return self.process_array_literal(
-                array_elements_list_attrs.get("elements", []), None, line_num_approx
+                array_elements_list_attrs.get("elements", []), None, approx_loc
             )
 
         # --- ArrayElementsList 的规则
@@ -2238,7 +2236,7 @@ class SemanticAnalyzer:
             else_part_attrs = get_child_attrs(3)  # ElsePart 自身也应传递 'code'
             # process_if_statement 应该负责合并所有这些部分的code并生成跳转指令
             return self.process_if_statement(
-                cond_expr_attrs, true_block_attrs, else_part_attrs, line_num_approx
+                cond_expr_attrs, true_block_attrs, else_part_attrs, approx_loc
             )
         elif production_rule_str == "ElsePart -> epsilon":
             return {"code": [], "is_empty": True}
@@ -2272,7 +2270,7 @@ class SemanticAnalyzer:
         #     cond_expr_attrs = get_child_attrs(1)
         #     body_block_attrs = get_child_attrs(2)
         #     return self.process_while_loop(
-        #         cond_expr_attrs, body_block_attrs, line_num_approx
+        #         cond_expr_attrs, body_block_attrs, approx_loc
         #     )
         elif (
             production_rule_str
@@ -2282,13 +2280,13 @@ class SemanticAnalyzer:
             iterable_attrs = get_child_attrs(3)
             body_block_attrs = get_child_attrs(4)
             return self.process_for_loop(
-                loop_var_decl_attrs, iterable_attrs, body_block_attrs, line_num_approx
+                loop_var_decl_attrs, iterable_attrs, body_block_attrs, approx_loc
             )
         elif (
             production_rule_str == "LoopStatement -> LOOP StatementBlock"
         ):  # 普通 loop 语句
             body_block_attrs = get_child_attrs(1)
-            return self.process_loop_statement(body_block_attrs, line_num_approx)
+            return self.process_loop_statement(body_block_attrs, approx_loc)
         ## 1..a+1
         elif production_rule_str == "IterableStructure -> Expression DOTDOT Expression":
             left_expr = get_child_attrs(0)
@@ -2333,7 +2331,7 @@ class SemanticAnalyzer:
             production_rule_str == "LoopExpression -> LOOP StatementBlock"
         ):  # loop 表达式
             body_block_attrs = get_child_attrs(1)
-            return self.process_loop_expression(body_block_attrs, line_num_approx)
+            return self.process_loop_expression(body_block_attrs, approx_loc)
         elif (
             production_rule_str
             == "ConditionalExpression -> IF Expression BlockExpression ELSE BlockExpression"
@@ -2345,7 +2343,7 @@ class SemanticAnalyzer:
                 cond_expr_attrs,
                 true_block_expr_attrs,
                 false_block_expr_attrs,
-                line_num_approx,
+                approx_loc,
             )
 
         # --- Tuple Literal Internals ---
@@ -2367,10 +2365,10 @@ class SemanticAnalyzer:
             return {"elements": [expr_attrs], "code": expr_attrs.get("code", [])}
         elif production_rule_str == "Factor -> AMP MUT Factor":
             factor_to_get_address_attrs = get_child_attrs(2)
-            return self.process_reference_op("&mut", factor_to_get_address_attrs, line_num_approx)
+            return self.process_reference_op("&mut", factor_to_get_address_attrs, approx_loc)
         elif production_rule_str == "Factor -> MULT Factor":
             factor_to_dereference_attrs = get_child_attrs(1)
-            return self.process_reference_op("*", factor_to_dereference_attrs, line_num_approx)
+            return self.process_reference_op("*", factor_to_dereference_attrs, approx_loc)
         elif (
             production_rule_str
             == "TupleAssignmentList -> Expression COMMA TupleAssignmentList"
@@ -2382,12 +2380,12 @@ class SemanticAnalyzer:
             return {"elements": elements, "code": code}
         elif production_rule_str == "Factor -> AMP Factor":
             factor_to_get_address_attrs = get_child_attrs(1)
-            return self.process_reference_op("&", factor_to_get_address_attrs, line_num_approx)
+            return self.process_reference_op("&", factor_to_get_address_attrs, approx_loc)
         elif production_rule_str == "WhileHeader -> WHILE Expression":
             while_token = get_token_obj_from_child(0)
             cond_expr_attrs = get_child_attrs(1)
             
-            line_num = while_token['loc']['row'] if while_token and 'loc' in while_token else line_num_approx
+            line_num = while_token['loc']['row'] if while_token and 'loc' in while_token else approx_loc
 
             loop_data_from_begin = self.process_while_loop_begin(line_num)
             
@@ -2424,16 +2422,16 @@ class SemanticAnalyzer:
 
         elif production_rule_str == "WhileEpilogue -> epsilon":
             if not self.loop_stack or self.loop_stack[-1]["type"] != "while":
-                raise SemanticError("Internal error: WhileEpilogue reached with invalid or missing 'while' context on loop_stack.", line_num_approx)
+                raise SemanticError("Internal error: WhileEpilogue reached with invalid or missing 'while' context on loop_stack.", approx_loc)
             
             current_loop_ctx = self.loop_stack[-1] # 不要立即 pop！！！
 
-            end_attrs = self.process_while_loop_end({"loop_ctx": current_loop_ctx, "start_label": current_loop_ctx["start_label"], "end_label": current_loop_ctx["end_label"]}, line_num_approx)
+            end_attrs = self.process_while_loop_end({"loop_ctx": current_loop_ctx, "start_label": current_loop_ctx["start_label"], "end_label": current_loop_ctx["end_label"]}, approx_loc)
             
             return {"quads": end_attrs.get("quads", [])}
         elif production_rule_str == "LoopExprMarkerBegin -> LOOP":
             loop_token = get_token_obj_from_child(0)
-            line_num = loop_token['loc']['row'] if loop_token and 'loc' in loop_token else line_num_approx
+            line_num = loop_token['loc']['row'] if loop_token and 'loc' in loop_token else approx_loc
             
             # 调用 process_loop_begin，标记为表达式，它会压栈 loop_stack
             # 并返回其生成的四元式 (如 LABEL) 和 loop_ctx (包含标签等信息)
@@ -2459,16 +2457,16 @@ class SemanticAnalyzer:
 
         elif production_rule_str == "LoopExprMarkerEnd -> epsilon":
             if not self.loop_stack or self.loop_stack[-1]["type"] != "loop" or not self.loop_stack[-1].get("is_expr_loop"):
-                raise SemanticError("Internal error: LoopExprMarkerEnd reached with invalid or missing 'loop expression' context on loop_stack.", line_num_approx)
+                raise SemanticError("Internal error: LoopExprMarkerEnd reached with invalid or missing 'loop expression' context on loop_stack.", approx_loc)
             
             loop_ctx_from_stack = self.loop_stack[-1] # 获取上下文
             
-            attrs_from_end = self.process_loop_end({"loop_ctx": loop_ctx_from_stack}, line_num_approx)
+            attrs_from_end = self.process_loop_end({"loop_ctx": loop_ctx_from_stack}, approx_loc)
             return attrs_from_end 
 
         elif production_rule_str == "LoopStmtMarkerBegin -> LOOP":
             loop_token = get_token_obj_from_child(0)
-            line_num = loop_token['loc']['row'] if loop_token and 'loc' in loop_token else line_num_approx
+            line_num = loop_token['loc']['row'] if loop_token and 'loc' in loop_token else approx_loc
             
             attrs_from_begin = self.process_loop_begin(is_expression=False, line_num=line_num)
             return attrs_from_begin
@@ -2487,16 +2485,16 @@ class SemanticAnalyzer:
 
         elif production_rule_str == "LoopStmtMarkerEnd -> epsilon":
             if not self.loop_stack or self.loop_stack[-1]["type"] != "loop" or self.loop_stack[-1].get("is_expr_loop"):
-                raise SemanticError("Internal error: LoopStmtMarkerEnd reached with invalid or missing 'loop statement' context on loop_stack.", line_num_approx)
+                raise SemanticError("Internal error: LoopStmtMarkerEnd reached with invalid or missing 'loop statement' context on loop_stack.", approx_loc)
             
             loop_ctx_from_stack = self.loop_stack[-1]
             
-            attrs_from_end = self.process_loop_end({"loop_ctx": loop_ctx_from_stack}, line_num_approx)
+            attrs_from_end = self.process_loop_end({"loop_ctx": loop_ctx_from_stack}, approx_loc)
             return attrs_from_end
 
         else: # NOT ALLOWED！！！
             print(
-                f"警告: dispatch_semantic_action 中 '{production_rule_str}' (行 ~{line_num_approx}) 未精确匹配，使用默认聚合/传递。"
+                f"警告: dispatch_semantic_action 中 '{production_rule_str}' (行 ~{approx_loc}) 未精确匹配，使用默认聚合/传递。"
             )
             collected_code = []
             passed_attrs = {}

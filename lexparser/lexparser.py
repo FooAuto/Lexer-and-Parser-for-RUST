@@ -502,37 +502,38 @@ class Parser:
                 # print(f"DEBUG: Reducing by rule: {production_rule_str}") # 添加这行来进行调试
 
 
-                approx_line_num = 1 # 默认
+                # approx_line_num = 1 # 默认
+                approx_loc = {'row': '?', 'col': '?'}
                 # 尝试从规约的第一个子节点的token获取行号
                 if children_semantic_attrs and children_semantic_attrs[0] and children_semantic_attrs[0].get('token_obj'):
                     first_child_token = children_semantic_attrs[0]['token_obj']
-                    if first_child_token and 'loc' in first_child_token and 'row' in first_child_token['loc']:
-                        approx_line_num = first_child_token['loc']['row']
-                # 或者从当前的lookahead token获取 (current_token_idx 指向的 toks_for_parsing)
+                    if first_child_token and 'loc' in first_child_token and first_child_token['loc']:
+                        approx_loc = first_child_token['loc']
+                # 或者从当前的lookahead token获取
                 elif current_token_idx < len(toks_for_parsing):
                      lookahead_token_for_line = toks_for_parsing[current_token_idx]
-                     if lookahead_token_for_line and 'loc' in lookahead_token_for_line and 'row' in lookahead_token_for_line['loc']:
-                         approx_line_num = lookahead_token_for_line['loc']['row']
+                     if lookahead_token_for_line and 'loc' in lookahead_token_for_line and lookahead_token_for_line['loc']:
+                         approx_loc = lookahead_token_for_line['loc']
                 
                 new_lhs_attributes = {} # 初始化
                 try:
                     # print(production_rule_str)
                     # print(children_semantic_attrs)
-                    # input(approx_line_num)
+                    # input(approx_loc)
                     new_lhs_attributes = self.semantic_analyzer.dispatch_semantic_action(
                         production_rule_str,
                         children_semantic_attrs,
-                        approx_line_num
+                        approx_loc
                     )
                     # self.semantic_analyzer.print_quadruples() # 打印四元式 (调试用)
                     # self.semantic_analyzer.print_symbol_table() # 打印符号表 (调试用)
                     # input()
                 except SemanticError as se:
                     # 报告语义错误并停止分析
-                    error_line = se.line_num if se.line_num is not None else approx_line_num
+                    final_loc = se.loc if se.loc and 'row' in se.loc and se.loc['row'] != '?' else approx_loc
                     return {
                         "error": f"语义错误: {se.message}",
-                        "loc": {"row": error_line, "col": "?"}, # 尝试获取列信息
+                        "loc": final_loc, # 尝试获取列信息
                         "rule": production_rule_str,
                         "semantic_error": True # 标记为语义错误
                     }
@@ -543,7 +544,7 @@ class Parser:
                 if goto_non_terminal_id not in self.goto_table[previous_top_state]:
                     return {
                         "error": f"内部错误: GOTO 表中状态 {previous_top_state} 对非终结符 {lhs_symbol_name} (ID: {goto_non_terminal_id}) 无转移。",
-                        "loc": {"row": approx_line_num, "col": "?"} 
+                        "loc": approx_loc 
                     }
 
                 next_state_after_reduce = self.goto_table[previous_top_state][goto_non_terminal_id]
