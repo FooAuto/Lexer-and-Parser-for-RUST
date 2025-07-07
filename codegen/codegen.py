@@ -6,6 +6,7 @@ class CodeGenerator:
         self.mips_code = []
         self.var_map = {}
         self.current_func_stack_offset = 0
+        self.param_count = 0
         self.temp_regs = [f"$t{i}" for i in range(10)]
         self.free_regs = self.temp_regs[:]
 
@@ -32,7 +33,7 @@ class CodeGenerator:
             operand_addr = self._get_var_addr(operand)
             self.mips_code.append(f"    lw {reg}, {operand_addr}")
 
-    def _translate_quads(self, quads):
+    def _translate_quads(self, quads, func_entry):
         for quad in quads:
             op, arg1, arg2, result = quad.op, quad.arg1, quad.arg2, quad.result
 
@@ -49,12 +50,26 @@ class CodeGenerator:
                 self.current_func_stack_offset = 0
                 self.var_map.clear()
 
+                if func_entry and func_entry.sym_type == SymbolType.FUNCTION:
+                    for i, param in enumerate(func_entry.extra_info.get("params", [])):
+                        param_addr = self._get_var_addr(param["name"])
+                        self.mips_code.append(f"    # Save parameter '{param['name']}' from $a{i} to stack")
+                        self.mips_code.append(f"    sw $a{i}, {param_addr}")
+
             elif op == "PARAM":
-                reg_arg = self._get_reg()
-                self._load_operand_to_reg(arg1, reg_arg)
-                self.mips_code.append(f"    addiu $sp, $sp, -4")
-                self.mips_code.append(f"    sw {reg_arg}, 0($sp)")
-                self._release_reg(reg_arg)
+                arg_reg = f"$a{self.param_count}"
+                self.param_count += 1
+                reg1 = self._get_reg()
+                self._load_operand_to_reg(arg1, reg1)
+                self.mips_code.append(f"    move {arg_reg}, {reg1}")
+                self._release_reg(reg1)
+
+            elif op == "CALL":
+                self.mips_code.append(f"    jal {arg1}")
+                self.param_count = 0
+                if result:
+                    result_addr = self._get_var_addr(result)
+                    self.mips_code.append(f"    sw $v0, {result_addr}")
 
             elif op == "ASSIGN":
                 reg1 = self._get_reg()
@@ -103,17 +118,11 @@ class CodeGenerator:
                 self.mips_code.append(f"    beqz {reg1}, {result}")
                 self._release_reg(reg1)
 
-            elif op == "CALL":
-                self.mips_code.append(f"    jal {arg1}")
-                if result:
-                    result_addr = self._get_var_addr(result)
-                    self.mips_code.append(f"    sw $v0, {result_addr}")
-
             elif op == "RETURN_VAL":
                 self._load_operand_to_reg(arg1, "$v0")
 
             elif op == "FUNC_END":
-                self.mips_code.append("    # Function Epilogue")
+                self.mips_code.append(f"    # Function Epilogue for {arg1}")
                 self.mips_code.append("    move $sp, $fp")
                 self.mips_code.append("    lw $ra, 4($sp)")
                 self.mips_code.append("    lw $fp, 0($sp)")
@@ -121,7 +130,6 @@ class CodeGenerator:
                 self.mips_code.append("    jr $ra")
 
     def generate(self, quadruples, symbol_tables):
-        # 1. 按函数分割四元式
         functions = {}
         current_func_name = None
         for quad in quadruples:
@@ -131,29 +139,35 @@ class CodeGenerator:
             if current_func_name:
                 functions[current_func_name].append(quad)
 
-        # 2. 生成 .data 段
         self.mips_code = [".data"]
         global_scope = symbol_tables[0]
         for name, entry in global_scope.items():
             if entry.sym_type == SymbolType.VARIABLE:
                 self.mips_code.append(f"{name}: .word 0")
 
-        # 3. 生成 .text 段的引导部分
-        self.mips_code.extend(["\n.text", ".globl main", "\n# Program entry point", "__start:" "    j main"])
+        self.mips_code.extend(
+            [
+                "\n.text",
+                ".globl main",
+                "\n# Program entry point",
+                "__start:",
+                "    jal main",
+                "    # Fallthrough to exit after main",
+                "    j main_exit",
+            ]
+        )
 
-        # 4. 生成 main 函数代码
-        if "main" in functions:
-            self._translate_quads(functions["main"])
+        all_scopes = {}
+        for scope in symbol_tables:
+            all_scopes.update(scope)
 
-        # 5. 生成 main 函数结束后的退出代码
-        self.mips_code.append("\n# Exit program after main returns")
+        for name, quads in functions.items():
+            func_entry = all_scopes.get(name)
+            self._translate_quads(quads, func_entry)
+
+        self.mips_code.append("\n# MARS exit syscall")
         self.mips_code.append("main_exit:")
         self.mips_code.append("    li $v0, 10")
         self.mips_code.append("    syscall")
-
-        # 6. 生成所有其他函数的代码
-        for name, quads in functions.items():
-            if name != "main":
-                self._translate_quads(quads)
 
         return "\n".join(self.mips_code)
