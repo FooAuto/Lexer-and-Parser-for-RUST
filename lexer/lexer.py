@@ -1,6 +1,6 @@
 import re
 from dataclasses import dataclass
-from lexer.token import tokenType, tokenKeywords, tokenSymbols
+from .token import tokenType, tokenKeywords, tokenSymbols
 
 
 @dataclass
@@ -13,148 +13,108 @@ class Token:
 
 class Lexer:
     def __init__(self):
-        # 词法规则
         self.token_exprs = [
             (r"\s+", None),
             (r"//.*", tokenType.S_COMMENT),
-            (r"/\*", None),
+            (r"/\*", tokenType.LM_COMMENT),
             (r"'(\\.|[^\\'])'", tokenType.CHAR_CONSTANT),
             (r'"(\\.|[^\\"])*"', tokenType.STRING_CONSTANT),
-            (
-                r"\b(?:"
-                + "|".join(re.escape(k) for k in tokenKeywords.keys())
-                + r")\b",
-                None,
-            ),
+            (r"\b(?:" + "|".join(re.escape(k) for k in tokenKeywords.keys()) + r")\b", "KEYWORD"),
             (r"[A-Za-z_][A-Za-z0-9_]*!", tokenType.MACRO_IDENTIFIER),
             (r"[A-Za-z_][A-Za-z0-9_]*", tokenType.IDENTIFIER),
             (r"\d+\.\d+([eE][+-]?\d+)?", tokenType.FLOATING_POINT_CONSTANT),
             (r"\d+", tokenType.INTEGER_CONSTANT),
-            (r"==|!=|>=|<=|->|\.\.|[+\-*/=><!&]", None),
-            (r"[(){}\[\];:,.]", None),
-            (r"#", tokenType.EOF),
+            (r"->|==|!=|>=|<=|\.\.", "SYMBOL"),
+            (r"[+\-*/=><!&(){}\[\];:,.]", "SYMBOL"),
         ]
-        self.token_id = 1
-        self.lines = []  # Added to store lines
-        self.line_idx = 0  # Added to track line index
+        self.compiled_rules = [(re.compile(p), t) for p, t in self.token_exprs]
+        self.source_code = ""
+        self.pos = 0
+        self.line_num = 1
+        self.col_num = 1
+        self.token_id_counter = 1
 
-    def handle_block_comment(self, lines, start_row, start_col, line_idx, start_pos):
+    def load_code(self, code: str):
+        self.source_code = code
+        self.pos = 0
+        self.line_num = 1
+        self.col_num = 1
+        self.token_id_counter = 1
+
+    def _update_pos_and_loc(self, text: str):
+        last_newline_pos = text.rfind("\n")
+        if last_newline_pos != -1:
+            self.line_num += text.count("\n")
+            self.col_num = len(text) - last_newline_pos
+        else:
+            self.col_num += len(text)
+        self.pos += len(text)
+
+    def _handle_block_comment(self):
+        start_loc = {"row": self.line_num, "col": self.col_num}
+        scan_pos = self.pos + 2
         depth = 1
-        comment_text = ""
-        row = start_row
-        col = start_col
-        while line_idx < len(lines):
-            line = lines[line_idx]
-            pos = start_pos if row == start_row else 0
-            while pos < len(line):
-                if line[pos: pos + 2] == "/*":
-                    depth += 1
-                    comment_text += "/*"
-                    pos += 2
-                elif line[pos: pos + 2] == "*/":
-                    depth -= 1
-                    comment_text += "*/"
-                    pos += 2
-                    if depth == 0:
-                        return comment_text, line_idx, pos
-                else:
-                    comment_text += line[pos]
-                    pos += 1
-            comment_text += "\n"
-            row += 1
-            line_idx += 1
-        return comment_text, line_idx, pos  # Unclosed comment fallback
+        while depth > 0 and scan_pos < len(self.source_code):
+            if self.source_code[scan_pos : scan_pos + 2] == "*/":
+                depth -= 1
+                scan_pos += 2
+            elif self.source_code[scan_pos : scan_pos + 2] == "/*":
+                depth += 1
+                scan_pos += 2
+            else:
+                scan_pos += 1
 
-    def tokenize_line(self, line, row):
-        tokens = []
-        pos = 0
-        while pos < len(line):
-            match_found = False
-            for pattern, initial_tag in self.token_exprs:
-                if pattern == r"/\*":
-                    if line[pos: pos + 2] == "/*":
-                        comment_text, end_row_idx, end_pos = self.handle_block_comment(
-                            self.lines, row, pos + 1, self.line_idx, pos + 2
-                        )
-                        tokens.append(
-                            Token(
-                                id=self.token_id,
-                                content="/*" + comment_text,
-                                prop=tokenType.LM_COMMENT,
-                                loc={"row": row, "col": pos + 1},
-                            )
-                        )
-                        self.token_id += 1
-                        self.line_idx = end_row_idx
-                        return tokens
-                    continue
-                regex = re.compile(pattern)
-                match = regex.match(line, pos)
+        comment_text = self.source_code[self.pos : scan_pos]
+        self._update_pos_and_loc(comment_text)
+
+        if depth > 0:
+            return Token(self.token_id_counter, comment_text, tokenType.UNKNOWN, start_loc)
+
+        token = Token(self.token_id_counter, comment_text, tokenType.LM_COMMENT, start_loc)
+        self.token_id_counter += 1
+        return token
+
+    def get_next_token(self) -> Token:
+        while self.pos < len(self.source_code):
+            for compiled_regex, tag in self.compiled_rules:
+                match = compiled_regex.match(self.source_code, self.pos)
                 if match:
                     text = match.group(0)
-                    match_found = True
-                    tag = initial_tag
-                    if tag is None and text in tokenKeywords:
-                        tag = tokenKeywords[text]
-                    elif tag is None and text in tokenSymbols:
-                        tag = tokenSymbols[text]
-                    elif tag is None:
-                        tag = tokenType.UNKNOWN
-                    if tag not in [None, tokenType.UNKNOWN]:
-                        tokens.append(
-                            Token(
-                                id=self.token_id,
-                                content=text,
-                                prop=tag,
-                                loc={"row": row, "col": pos + 1},
-                            )
-                        )
-                        self.token_id += 1
-                    elif tag == tokenType.UNKNOWN and not text.isspace():
-                        tokens.append(
-                            Token(
-                                id=self.token_id,
-                                content=text,
-                                prop=tag,
-                                loc={"row": row, "col": pos + 1},
-                            )
-                        )
-                        self.token_id += 1
-                    pos = match.end(0)
-                    break
-            if not match_found:
-                tokens.append(
-                    Token(
-                        id=self.token_id,
-                        content=line[pos],
-                        prop=tokenType.UNKNOWN,
-                        loc={"row": row, "col": pos + 1},
-                    )
-                )
-                self.token_id += 1
-                pos += 1
-        return tokens
+                    loc = {"row": self.line_num, "col": self.col_num}
 
-    def getLex(self, lines):
-        self.lines = lines
-        self.line_idx = 0
-        all_tokens = []
-        row = 1
-        success = True
-        for idx, line in enumerate(lines):
-            self.line_idx = idx
-            tokens = self.tokenize_line(line, row)
-            for token in tokens:
-                if token.prop == tokenType.UNKNOWN:
-                    success = False
-                all_tokens.append(token)
-            row += 1
-        all_tokens.append(
-            Token(
-                id=self.token_id,
-                content="#",
-                prop=tokenType.EOF,
-                loc={"row": row, "col": 1},
-            )
-        )
-        return [t.__dict__ for t in all_tokens], success
+                    if tag is None:
+                        self._update_pos_and_loc(text)
+                        break
+
+                    if tag == tokenType.LM_COMMENT:
+                        return self._handle_block_comment()
+
+                    self._update_pos_and_loc(text)
+                    final_tag = tag
+                    if tag == "KEYWORD":
+                        final_tag = tokenKeywords.get(text, tokenType.IDENTIFIER)
+                    elif tag == "SYMBOL":
+                        final_tag = tokenSymbols[text]
+
+                    token = Token(self.token_id_counter, text, final_tag, loc)
+                    self.token_id_counter += 1
+                    return token
+            else:
+                loc = {"row": self.line_num, "col": self.col_num}
+                unknown_char = self.source_code[self.pos]
+                self._update_pos_and_loc(unknown_char)
+                token = Token(self.token_id_counter, unknown_char, tokenType.UNKNOWN, loc)
+                self.token_id_counter += 1
+                return token
+
+        return Token(self.token_id_counter, "#", tokenType.EOF, {"row": self.line_num, "col": self.col_num})
+
+    def get_all_tokens(self):
+        self.load_code(self.source_code)
+        tokens = []
+        while True:
+            token = self.get_next_token()
+            tokens.append(token)
+            if token.prop == tokenType.EOF:
+                break
+        return [t.__dict__ for t in tokens]

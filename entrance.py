@@ -48,6 +48,7 @@ async def lifespan(app: FastAPI):
     print("Initialization Done!")
     yield
 
+
 app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
@@ -64,56 +65,57 @@ async def serve_frontend():
     path = resource_path(path)
     return FileResponse(path)
 
+
 app.mount("/static", StaticFiles(directory=resource_path("static")), name="static")
 
 
 @app.post("/api/parse")
 async def api_parse(request: Request):
     lexer = app.state.lexer
-    parser = Parser()
+    parser = app.state.parser
     body = await request.json()
     code = body.get("code", "")
-    lines = code.splitlines(keepends=True)
 
-    # 重置 lexer 状态
-    # print(lines)
-    # return {"tree": None}
-    lexer.token_id = 1
-    tokens, success = lexer.getLex(lines)
+    lexer.load_code(code)
+    tokens_for_highlight = lexer.get_all_tokens()
+
     mark_tokens = [
-        {**t, "prop": tokenType(t["prop"]).name}
-        for t in tokens
+        {**t, "prop": tokenType(t["prop"]).name if isinstance(t["prop"], int) else t["prop"].name}
+        for t in tokens_for_highlight
     ]
-    # input(tokens)
-    if not success:
-        unk = next(t for t in mark_tokens if t["prop"] == "UNKNOWN")
-        return {
-            "error": {
-                "content": unk["content"],
-                "loc": unk["loc"],
-                "tok": unk  # 添加 tok 字段用于错误高亮
-            },
-            "tokens": mark_tokens
-        }
 
-    # parser 进行语法分析
-    result = parser.parse(tokens)
-    if isinstance(result, dict) and result.get("error"):
+    unknown_token = next((t for t in mark_tokens if t["prop"] == "UNKNOWN"), None)
+    if unknown_token:
         return {
             "error": {
-                "content": result["error"],
-                "loc": result["loc"],
-                "tok": result.get("token", None),  # 添加 tok 字段用于错误高亮
+                "content": f"词法错误: 未知Token '{unknown_token['content']}'",
+                "loc": unknown_token["loc"],
+                "tok": unknown_token,
             },
             "tokens": mark_tokens,
         }
+
+    lexer.load_code(code)
+    result = parser.parse(lexer)
+
+    if isinstance(result, dict) and result.get("error"):
+        error_info = result["error"]
+        return {
+            "error": {
+                "content": error_info["content"],
+                "loc": error_info["loc"],
+                "tok": error_info.get("tok"),
+            },
+            "tokens": mark_tokens,
+        }
+
     return {
         "tree": result["syntax_tree"],
         "quadruples": result.get("quadruples", []),
         "tokens": mark_tokens,
-        "success": success,
-        "action":  format_action_table(parser.action_table),
-        "goto": format_goto_table(parser.goto_table)
+        "success": True,
+        "action": format_action_table(parser.action_table),
+        "goto": format_goto_table(parser.goto_table),
     }
 
 
@@ -121,17 +123,7 @@ if __name__ == "__main__":
     is_frozen = getattr(sys, "frozen", False)
     if not is_frozen:
         # 开发时
-        uvicorn.run(
-            "entrance:app",
-            host="127.0.0.1",
-            port=8000,
-            reload=True
-        )
+        uvicorn.run("entrance:app", host="127.0.0.1", port=8000, reload=True)
     else:
         # 打包时
-        uvicorn.run(
-            app,
-            host="127.0.0.1",
-            port=8000,
-            reload=False
-        )
+        uvicorn.run(app, host="127.0.0.1", port=8000, reload=False)
