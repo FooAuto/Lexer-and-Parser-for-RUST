@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from lexer.token import tokenType
 import sys
 from utils.utils import *
+from codegen.codegen import CodeGenerator
 
 
 def format_action_table(action):
@@ -43,6 +44,8 @@ async def lifespan(app: FastAPI):
     print("Lexer Startup Done!")
     app.state.parser = Parser()
     print("Parser Startup Done!")
+    app.state.codegen = CodeGenerator()
+    print("CodeGen Startup Done!")
     app.state.map = {member.value: member.name for member in tokenType}
     print("Map Startup Done!")
     print("Initialization Done!")
@@ -73,6 +76,7 @@ app.mount("/static", StaticFiles(directory=resource_path("static")), name="stati
 async def api_parse(request: Request):
     lexer = app.state.lexer
     parser = app.state.parser
+    codegen = app.state.codegen
     body = await request.json()
     code = body.get("code", "")
 
@@ -109,9 +113,14 @@ async def api_parse(request: Request):
             "tokens": mark_tokens,
         }
 
+    quadruples = result.get("quadruples", [])
+    symbol_tables = parser.semantic_analyzer.symbol_tables
+    mips_code = codegen.generate(quadruples, symbol_tables)
+
     return {
         "tree": result["syntax_tree"],
         "quadruples": result.get("quadruples", []),
+        "mips_code": mips_code,
         "tokens": mark_tokens,
         "success": True,
         "action": format_action_table(parser.action_table),

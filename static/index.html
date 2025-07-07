@@ -699,9 +699,14 @@
       <textarea id="editor">
 // 在这里输入 Rust-like 代码
 fn example(mut a:i32) {
-    while a > 0 {
-        a = a - 1;
-    }
+  while a > 0 {
+    a = a - 1;
+  }
+}
+
+fn main() {
+  let mut a = 6;
+  example(a);
 }</textarea>
     </div>
 
@@ -719,11 +724,13 @@ fn example(mut a:i32) {
         <select id="display-selector">
           <option value="syntax-tree-container">Syntax Tree</option>
           <option value="quadruples-container">Intermediate Code</option>
+          <option value="mips-code-container">MIPS Code</option>
           <option value="parsing-tables-container">Parsing Tables</option>
         </select>
         <div class="tab-controls">
           <button id="zoom-in" title="Zoom In">＋</button>
           <button id="zoom-out" title="Zoom Out">－</button>
+          <button id="save-mips" title="Save MIPS Code">Save .asm</button>
         </div>
       </div>
 
@@ -737,6 +744,10 @@ fn example(mut a:i32) {
 
         <div id="quadruples-container" class="content-pane">
           <div id="quadruples-table-wrapper"></div>
+        </div>
+
+        <div id="mips-code-container" class="content-pane">
+          <pre id="mips-code-content"></pre>
         </div>
 
         <div id="parsing-tables-container" class="content-pane">
@@ -895,6 +906,10 @@ fn example(mut a:i32) {
           gotoTableContent.classList.remove('active');
         }
       }
+      else if (selectedPaneId === "mips-code-container") {
+        const preEl = document.getElementById("mips-code-content");
+        preEl.textContent = data.mips_code || "No MIPS code generated.";
+      }
     }
 
     displaySelector.addEventListener("change", function () {
@@ -915,6 +930,21 @@ fn example(mut a:i32) {
     document.getElementById("zoom-in").onclick = () => svg.transition().duration(200).call(zoom.scaleBy, 1.2);
     document.getElementById("zoom-out").onclick = () => svg.transition().duration(200).call(zoom.scaleBy, 0.8);
 
+    document.getElementById("save-mips").addEventListener("click", function () {
+      if (lastParseResult && lastParseResult.mips_code) {
+        const blob = new Blob([lastParseResult.mips_code], { type: "text/plain;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "output.asm";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } else {
+        alert("No MIPS code available to save.");
+      }
+    });
 
     // ---------------- RENDERING FUNCTIONS ----------------
 
