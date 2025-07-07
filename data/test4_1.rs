@@ -1,7 +1,8 @@
 fn program_4_1(a:i32) -> i32 {
-    if a > 0 {
-        return 1;
+    let mut b:i32;
+    if a > 1 {
+        b=a+1;
     } else {
-        return 0;
+        b=a-1;
     }
 }

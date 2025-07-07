@@ -1,9 +1,10 @@
 fn program_4_2(a:i32) -> i32 {
-    if a > 0 {
-        return 0;
-    } else if a < 0 {
-        return 1;
+    let mut b:i32;
+    if a > 1 {
+        b=a+1;
+    } else if a < 1 {
+        b=a-1;
     } else {
-        return 2;
+        b=a;
     }
 }

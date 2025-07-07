@@ -11,6 +11,31 @@ import sys
 from utils.utils import *
 
 
+def format_action_table(action):
+    formatted = {}
+    for state_id, entries in enumerate(action):
+        formatted[state_id] = {}
+        for token_id, (act_type, target) in entries.items():
+            if act_type == 0:
+                formatted[state_id][token_id] = "accept"
+            elif act_type == 1:
+                formatted[state_id][token_id] = f"shift {target}"
+            elif act_type == 2:
+                formatted[state_id][token_id] = f"reduce {target}"
+            else:
+                formatted[state_id][token_id] = "error"
+    return formatted
+
+
+def format_goto_table(goto):
+    formatted = {}
+    for state_id, entries in enumerate(goto):
+        formatted[state_id] = {}
+        for nonterminal_id, target in entries.items():
+            formatted[state_id][nonterminal_id] = str(target)
+    return formatted
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("Initialization Start!")
@@ -45,7 +70,7 @@ app.mount("/static", StaticFiles(directory=resource_path("static")), name="stati
 @app.post("/api/parse")
 async def api_parse(request: Request):
     lexer = app.state.lexer
-    parser = app.state.parser
+    parser = Parser()
     body = await request.json()
     code = body.get("code", "")
     lines = code.splitlines(keepends=True)
@@ -65,7 +90,8 @@ async def api_parse(request: Request):
         return {
             "error": {
                 "content": unk["content"],
-                "loc": unk["loc"]
+                "loc": unk["loc"],
+                "tok": unk  # 添加 tok 字段用于错误高亮
             },
             "tokens": mark_tokens
         }
@@ -77,15 +103,17 @@ async def api_parse(request: Request):
             "error": {
                 "content": result["error"],
                 "loc": result["loc"],
-                "tok": result["token"]
+                "tok": result.get("token", None),  # 添加 tok 字段用于错误高亮
             },
-            "tokens": mark_tokens
+            "tokens": mark_tokens,
         }
-
     return {
-        "tree": result,
+        "tree": result["syntax_tree"],
+        "quadruples": result.get("quadruples", []),
         "tokens": mark_tokens,
-        "success": success
+        "success": success,
+        "action":  format_action_table(parser.action_table),
+        "goto": format_goto_table(parser.goto_table)
     }
 
 
@@ -95,7 +123,7 @@ if __name__ == "__main__":
         # 开发时
         uvicorn.run(
             "entrance:app",
-            host="0.0.0.0",
+            host="127.0.0.1",
             port=8000,
             reload=True
         )
@@ -103,7 +131,7 @@ if __name__ == "__main__":
         # 打包时
         uvicorn.run(
             app,
-            host="0.0.0.0",
+            host="127.0.0.1",
             port=8000,
             reload=False
         )
