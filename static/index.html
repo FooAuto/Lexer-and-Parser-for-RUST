@@ -166,6 +166,7 @@
       height: auto;
       /* 自动高度 */
       font-size: 14px;
+      font-weight: bold;
       background: var(--editor-bg) !important;
       color: var(--fg-main) !important;
       /* CodeMirror 文字颜色 */
@@ -495,7 +496,6 @@
 
 
     /* --- 自定义 Token 高亮样式 --- */
-    /* 关键字 */
     .token-LET,
     .token-FN,
     .token-FOR,
@@ -504,56 +504,47 @@
     .token-IF,
     .token-ELSE,
     .token-RETURN,
-    .token-MUT,
     .token-LOOP,
     .token-BREAK,
     .token-CONTINUE {
       color: #C586C0;
-      /* 暗色主题下的紫色，亮色主题下也适用 */
-      font-weight: bold;
     }
 
-    /* 标识符 */
+    .token-MUT {
+      color: #D16D9E;
+      font-style: italic;
+    }
+
     .token-IDENTIFIER {
-      /* 通常由 CodeMirror 主题处理，如果需要特定颜色可以在这里覆盖 */
       color: #9CDCFE;
     }
 
     .token-MACRO_IDENTIFIER {
       color: #4EC9B0;
-      /* 类似类型的颜色 */
       font-style: italic;
     }
 
-    /* 类型 */
     .token-I32 {
       color: #4EC9B0;
-      /* 蓝绿色 */
     }
 
-    /* 常量 */
     .token-INTEGER_CONSTANT,
     .token-FLOATING_POINT_CONSTANT {
       color: #B5CEA8;
-      /* 数字的绿色 */
     }
 
     .token-CHAR_CONSTANT,
     .token-STRING_CONSTANT {
       color: #CE9178;
-      /* 字符串的橙色 */
     }
 
-    /* 注释 (CodeMirror 主题通常会处理，这里是备用/覆盖) */
     .token-S_COMMENT,
     .token-LM_COMMENT,
     .token-RM_COMMENT {
       color: #6A9955;
-      /* 注释绿色 */
       font-style: italic;
     }
 
-    /* 操作符和标点 */
     .token-ASSIGN,
     .token-PLUS,
     .token-MINUS,
@@ -565,6 +556,10 @@
     .token-LT,
     .token-LE,
     .token-NEQ,
+    .token-ARROW {
+      color: #D4D4D4;
+    }
+
     .token-LPAREN,
     .token-RPAREN,
     .token-LBRACE,
@@ -574,25 +569,93 @@
     .token-SEMICOLON,
     .token-COLON,
     .token-COMMA,
-    .token-ARROW,
     .token-DOT,
     .token-DOTDOT,
     .token-AMP {
-      color: #D4D4D4;
-      /* 暗色主题下的默认文字色，亮色主题下可能需要调整 */
+      color: #808080;
+    }
+
+    :root[data-theme="light"] .token-LET,
+    :root[data-theme="light"] .token-FN,
+    :root[data-theme="light"] .token-FOR,
+    :root[data-theme="light"] .token-IN,
+    :root[data-theme="light"] .token-WHILE,
+    :root[data-theme="light"] .token-IF,
+    :root[data-theme="light"] .token-ELSE,
+    :root[data-theme="light"] .token-RETURN,
+    :root[data-theme="light"] .token-LOOP,
+    :root[data-theme="light"] .token-BREAK,
+    :root[data-theme="light"] .token-CONTINUE {
+      color: #0000FF;
+    }
+
+    :root[data-theme="light"] .token-MUT {
+      color: #AF00DB;
+      font-style: italic;
+    }
+
+    :root[data-theme="light"] .token-IDENTIFIER {
+      color: #001080;
+    }
+
+    :root[data-theme="light"] .token-MACRO_IDENTIFIER {
+      color: #267F99;
+      font-style: italic;
+    }
+
+    :root[data-theme="light"] .token-I32 {
+      color: #267F99;
+    }
+
+    :root[data-theme="light"] .token-INTEGER_CONSTANT,
+    :root[data-theme="light"] .token-FLOATING_POINT_CONSTANT {
+      color: #098658;
+    }
+
+    :root[data-theme="light"] .token-CHAR_CONSTANT,
+    :root[data-theme="light"] .token-STRING_CONSTANT {
+      color: #A31515;
+    }
+
+    :root[data-theme="light"] .token-S_COMMENT,
+    :root[data-theme="light"] .token-LM_COMMENT,
+    :root[data-theme="light"] .token-RM_COMMENT {
+      color: #008000;
+      font-style: italic;
     }
 
     :root[data-theme="light"] .token-ASSIGN,
     :root[data-theme="light"] .token-PLUS,
     :root[data-theme="light"] .token-MINUS,
-    /* ... 其他操作符 ... */
-    :root[data-theme="light"] .token-AMP {
+    :root[data-theme="light"] .token-MULT,
+    :root[data-theme="light"] .token-DIV,
+    :root[data-theme="light"] .token-EQ,
+    :root[data-theme="light"] .token-GT,
+    :root[data-theme="light"] .token-GE,
+    :root[data-theme="light"] .token-LT,
+    :root[data-theme="light"] .token-LE,
+    :root[data-theme="light"] .token-NEQ,
+    :root[data-theme="light"] .token-ARROW {
       color: #000000;
-      /* 亮色主题下的操作符颜色 */
+    }
+
+    :root[data-theme="light"] .token-LPAREN,
+    :root[data-theme="light"] .token-RPAREN,
+    :root[data-theme="light"] .token-LBRACE,
+    :root[data-theme="light"] .token-RBRACE,
+    :root[data-theme="light"] .token-LBRACK,
+    :root[data-theme="light"] .token-RBRACK,
+    :root[data-theme="light"] .token-SEMICOLON,
+    :root[data-theme="light"] .token-COLON,
+    :root[data-theme="light"] .token-COMMA,
+    :root[data-theme="light"] .token-DOT,
+    :root[data-theme="light"] .token-DOTDOT,
+    :root[data-theme="light"] .token-AMP {
+      color: #333333;
     }
 
     .token-UNKNOWN {
-      background-color: rgba(255, 0, 0, 0.2) !important;
+      background-color: rgba(255, 0, 0, 0.2);
       color: red !important;
       text-decoration: wavy underline red;
     }
