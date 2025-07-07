@@ -824,14 +824,31 @@ fn main() {
 
     function markTokens(tokens) {
       tokens.forEach((tok) => {
-        if (tok.loc && typeof tok.loc.row === 'number' && typeof tok.loc.col === 'number' && tok.content) {
-          const from = { line: tok.loc.row - 1, ch: tok.loc.col - 1 };
-          const to = { line: tok.loc.row - 1, ch: tok.loc.col - 1 + tok.content.length };
-          tokenMarks.push(
-            editor.getDoc().markText(from, to, {
-              className: "token-" + tok.prop,
-            })
-          );
+        if (!tok.loc || typeof tok.loc.row !== 'number' || typeof tok.loc.col !== 'number' || !tok.content) {
+          return;
+        }
+
+        const className = "token-" + tok.prop;
+        const startLine = tok.loc.row - 1;
+        const startCol = tok.loc.col - 1;
+
+        if (tok.content.includes('\n')) {
+          const lines = tok.content.split('\n');
+          lines.forEach((lineContent, index) => {
+            let from, to;
+            if (index === 0) {
+              from = { line: startLine, ch: startCol };
+              to = { line: startLine, ch: startCol + lineContent.length };
+            } else {
+              from = { line: startLine + index, ch: 0 };
+              to = { line: startLine + index, ch: lineContent.length };
+            }
+            tokenMarks.push(editor.getDoc().markText(from, to, { className: className }));
+          });
+        } else {
+          const from = { line: startLine, ch: startCol };
+          const to = { line: startLine, ch: startCol + tok.content.length };
+          tokenMarks.push(editor.getDoc().markText(from, to, { className: className }));
         }
       });
     }
