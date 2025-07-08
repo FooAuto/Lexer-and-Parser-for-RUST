@@ -9,6 +9,8 @@ class CodeGenerator:
         self.param_count = 0
         self.temp_regs = [f"$t{i}" for i in range(10)]
         self.free_regs = self.temp_regs[:]
+        self.global_symbols = {}
+        self.current_symbol_map = {}
 
     def _get_reg(self):
         if not self.free_regs:
@@ -20,18 +22,68 @@ class CodeGenerator:
             self.free_regs.insert(0, reg)
             self.free_regs.sort(key=lambda r: int(r[2:]))
 
-    def _get_var_addr(self, var_name):
+    def _get_var_stack_offset(self, var_name):
         if var_name not in self.var_map:
-            self.current_func_stack_offset -= 4
-            self.var_map[var_name] = self.current_func_stack_offset
-        return f"{self.var_map[var_name]}($fp)"
+            var_entry = self.current_symbol_map.get(var_name)
+            size = 4
+            if var_entry and isinstance(var_entry.data_type, list) and var_entry.data_type[0] == "[":
+                array_len = var_entry.data_type[2]
+                size = array_len * 4
 
-    def _load_operand_to_reg(self, operand, reg):
+            self.current_func_stack_offset -= size
+            self.var_map[var_name] = self.current_func_stack_offset
+        return self.var_map[var_name]
+
+    def _load_value_to_reg(self, operand, reg):
         if isinstance(operand, int):
             self.mips_code.append(f"    li {reg}, {operand}")
         else:
-            operand_addr = self._get_var_addr(operand)
-            self.mips_code.append(f"    lw {reg}, {operand_addr}")
+            offset = self._get_var_stack_offset(operand)
+            self.mips_code.append(f"    lw {reg}, {offset}($fp)")
+
+    def _load_address_to_reg(self, var_name, reg):
+        entry = self.current_symbol_map.get(var_name)
+        offset = self._get_var_stack_offset(var_name)
+
+        is_array_param = (
+            entry
+            and entry.sym_type == SymbolType.PARAMETER
+            and isinstance(entry.data_type, list)
+            and entry.data_type[0] == "["
+        )
+
+        if is_array_param:
+            self.mips_code.append(f"    lw {reg}, {offset}($fp)")
+        else:
+            self.mips_code.append(f"    addiu {reg}, $fp, {offset}")
+
+    def _calculate_stack_space(self, func_quads):
+        size = 0
+        local_vars = set()
+        for quad in func_quads:
+            for item in [quad.arg1, quad.arg2, quad.result]:
+                if isinstance(item, str) and not item.startswith("L"):
+                    entry = self.current_symbol_map.get(item)
+                    if not entry or entry.sym_type not in [SymbolType.FUNCTION]:
+                        local_vars.add(item)
+
+        processed_vars = set()
+        for var_name in local_vars:
+            if var_name in processed_vars:
+                continue
+
+            entry = self.current_symbol_map.get(var_name)
+            if entry and entry.sym_type != SymbolType.PARAMETER:
+                if isinstance(entry.data_type, list) and entry.data_type[0] == "[":
+                    size += entry.data_type[2] * 4
+                else:
+                    size += 4
+                processed_vars.add(var_name)
+            elif not entry:  # Temporaries
+                size += 4
+                processed_vars.add(var_name)
+
+        return (size + 15) & -16
 
     def _translate_quads(self, quads, func_entry):
         for quad in quads:
@@ -39,72 +91,124 @@ class CodeGenerator:
 
             if op == "FUNC_BEGIN":
                 self.mips_code.append(f"\n{arg1}:")
-                self.mips_code.append("    # Function Prologue")
                 self.mips_code.append("    addiu $sp, $sp, -8")
                 self.mips_code.append("    sw $ra, 4($sp)")
                 self.mips_code.append("    sw $fp, 0($sp)")
                 self.mips_code.append("    move $fp, $sp")
 
-                stack_space = 128
+                stack_space = self._calculate_stack_space(quads)
                 self.mips_code.append(f"    addiu $sp, $sp, -{stack_space}")
                 self.current_func_stack_offset = 0
                 self.var_map.clear()
 
                 if func_entry and func_entry.sym_type == SymbolType.FUNCTION:
                     for i, param in enumerate(func_entry.extra_info.get("params", [])):
-                        param_addr = self._get_var_addr(param["name"])
-                        self.mips_code.append(f"    # Save parameter '{param['name']}' from $a{i} to stack")
-                        self.mips_code.append(f"    sw $a{i}, {param_addr}")
+                        if i < 4:
+                            param_offset = self._get_var_stack_offset(param["name"])
+                            self.mips_code.append(f"    sw $a{i}, {param_offset}($fp)")
+
+            elif op == "ARRAY_LOAD":
+                reg_base_addr = self._get_reg()
+                reg_index = self._get_reg()
+                dest_reg = self._get_reg()
+
+                self._load_address_to_reg(arg1, reg_base_addr)
+                self._load_value_to_reg(arg2, reg_index)
+
+                self.mips_code.append(f"    sll {reg_index}, {reg_index}, 2")
+                self.mips_code.append(f"    addu {reg_base_addr}, {reg_base_addr}, {reg_index}")
+                self.mips_code.append(f"    lw {dest_reg}, 0({reg_base_addr})")
+
+                dest_addr_on_stack = self._get_var_stack_offset(result)
+                self.mips_code.append(f"    sw {dest_reg}, {dest_addr_on_stack}($fp)")
+
+                self._release_reg(reg_base_addr)
+                self._release_reg(reg_index)
+                self._release_reg(dest_reg)
+
+            elif op == "ARRAY_STORE":
+                reg_base_addr = self._get_reg()
+                reg_index = self._get_reg()
+                reg_value = self._get_reg()
+
+                self._load_address_to_reg(arg1, reg_base_addr)
+                self._load_value_to_reg(arg2, reg_index)
+                self._load_value_to_reg(result, reg_value)
+
+                self.mips_code.append(f"    sll {reg_index}, {reg_index}, 2")
+                self.mips_code.append(f"    addu {reg_base_addr}, {reg_base_addr}, {reg_index}")
+                self.mips_code.append(f"    sw {reg_value}, 0({reg_base_addr})")
+
+                self._release_reg(reg_base_addr)
+                self._release_reg(reg_index)
+                self._release_reg(reg_value)
 
             elif op == "PARAM":
-                arg_reg = f"$a{self.param_count}"
-                self.param_count += 1
-                reg1 = self._get_reg()
-                self._load_operand_to_reg(arg1, reg1)
-                self.mips_code.append(f"    move {arg_reg}, {reg1}")
-                self._release_reg(reg1)
+                arg_entry = self.current_symbol_map.get(arg1)
+                is_array = arg_entry and isinstance(arg_entry.data_type, list) and arg_entry.data_type[0] == "["
 
-            elif op == "CALL":
-                self.mips_code.append(f"    jal {arg1}")
-                self.param_count = 0
-                if result:
-                    result_addr = self._get_var_addr(result)
-                    self.mips_code.append(f"    sw $v0, {result_addr}")
+                if self.param_count < 4:
+                    arg_reg = f"$a{self.param_count}"
+                    if is_array:
+                        self._load_address_to_reg(arg1, arg_reg)
+                    else:
+                        self._load_value_to_reg(arg1, arg_reg)
+                else:
+                    raise NotImplementedError("Stack-based parameter passing beyond 4 arguments not implemented.")
+                self.param_count += 1
+
+            elif op == "ARRAY_INIT":
+                self._get_var_stack_offset(arg1)
+
+            elif op == "ARRAY_SET":
+                array_name = arg1
+                index_val = arg2
+                value_to_store = result
+                array_base_addr_offset = self._get_var_stack_offset(array_name)
+                element_offset_in_bytes = index_val * 4
+                final_offset_on_stack = array_base_addr_offset + element_offset_in_bytes
+                reg_val = self._get_reg()
+                self._load_value_to_reg(value_to_store, reg_val)
+                self.mips_code.append(f"    sw {reg_val}, {final_offset_on_stack}($fp)")
+                self._release_reg(reg_val)
 
             elif op == "ASSIGN":
-                reg1 = self._get_reg()
-                self._load_operand_to_reg(arg1, reg1)
-                result_addr = self._get_var_addr(result)
-                self.mips_code.append(f"    sw {reg1}, {result_addr}")
-                self._release_reg(reg1)
+                dest_entry = self.current_symbol_map.get(result)
+                is_array_assign = (
+                    dest_entry and isinstance(dest_entry.data_type, list) and dest_entry.data_type[0] == "["
+                )
+                if is_array_assign:
+                    array_len = dest_entry.data_type[2]
+                    reg_src, reg_dest, reg_tmp = self._get_reg(), self._get_reg(), self._get_reg()
+                    self._load_address_to_reg(arg1, reg_src)
+                    self._load_address_to_reg(result, reg_dest)
+                    for i in range(array_len):
+                        offset = i * 4
+                        self.mips_code.append(f"    lw {reg_tmp}, {offset}({reg_src})")
+                        self.mips_code.append(f"    sw {reg_tmp}, {offset}({reg_dest})")
+                    self._release_reg(reg_src)
+                    self._release_reg(reg_dest)
+                    self._release_reg(reg_tmp)
+                else:
+                    reg1 = self._get_reg()
+                    self._load_value_to_reg(arg1, reg1)
+                    result_addr_offset = self._get_var_stack_offset(result)
+                    self.mips_code.append(f"    sw {reg1}, {result_addr_offset}($fp)")
+                    self._release_reg(reg1)
 
             elif op in ("ADD", "SUB", "MUL", "DIV"):
-                reg1 = self._get_reg()
-                reg2 = self._get_reg()
-                self._load_operand_to_reg(arg1, reg1)
-                self._load_operand_to_reg(arg2, reg2)
-
+                reg1, reg2, result_reg = self._get_reg(), self._get_reg(), self._get_reg()
+                self._load_value_to_reg(arg1, reg1)
+                self._load_value_to_reg(arg2, reg2)
                 op_map = {"ADD": "addu", "SUB": "subu", "MUL": "mul", "DIV": "div"}
-                self.mips_code.append(f"    {op_map[op]} {reg1}, {reg1}, {reg2}")
-
-                result_addr = self._get_var_addr(result)
-                self.mips_code.append(f"    sw {reg1}, {result_addr}")
+                self.mips_code.append(f"    {op_map[op]} {result_reg}, {reg1}, {reg2}")
+                if op == "DIV":
+                    self.mips_code.append(f"    mflo {result_reg}")
+                result_addr_offset = self._get_var_stack_offset(result)
+                self.mips_code.append(f"    sw {result_reg}, {result_addr_offset}($fp)")
                 self._release_reg(reg1)
                 self._release_reg(reg2)
-
-            elif op in ("LT", "LE", "GT", "GE", "EQ", "NE"):
-                reg1 = self._get_reg()
-                reg2 = self._get_reg()
-                self._load_operand_to_reg(arg1, reg1)
-                self._load_operand_to_reg(arg2, reg2)
-
-                op_map = {"LT": "slt", "LE": "sle", "GT": "sgt", "GE": "sge", "EQ": "seq", "NE": "sne"}
-                self.mips_code.append(f"    {op_map[op]} {reg1}, {reg1}, {reg2}")
-
-                result_addr = self._get_var_addr(result)
-                self.mips_code.append(f"    sw {reg1}, {result_addr}")
-                self._release_reg(reg1)
-                self._release_reg(reg2)
+                self._release_reg(result_reg)
 
             elif op == "LABEL":
                 self.mips_code.append(f"{result}:")
@@ -114,22 +218,28 @@ class CodeGenerator:
 
             elif op == "IF_FALSE":
                 reg1 = self._get_reg()
-                self._load_operand_to_reg(arg1, reg1)
+                self._load_value_to_reg(arg1, reg1)
                 self.mips_code.append(f"    beqz {reg1}, {result}")
                 self._release_reg(reg1)
 
+            elif op == "CALL":
+                self.mips_code.append(f"    jal {arg1}")
+                self.param_count = 0
+                if result:
+                    result_addr_offset = self._get_var_stack_offset(result)
+                    self.mips_code.append(f"    sw $v0, {result_addr_offset}($fp)")
+
             elif op == "RETURN_VAL":
-                self._load_operand_to_reg(arg1, "$v0")
+                self._load_value_to_reg(arg1, "$v0")
 
             elif op == "FUNC_END":
-                self.mips_code.append(f"    # Function Epilogue for {arg1}")
                 self.mips_code.append("    move $sp, $fp")
                 self.mips_code.append("    lw $ra, 4($sp)")
                 self.mips_code.append("    lw $fp, 0($sp)")
                 self.mips_code.append("    addiu $sp, $sp, 8")
                 self.mips_code.append("    jr $ra")
 
-    def generate(self, quadruples, symbol_tables):
+    def generate(self, quadruples, global_symbol_table):
         functions = {}
         current_func_name = None
         for quad in quadruples:
@@ -139,35 +249,28 @@ class CodeGenerator:
             if current_func_name:
                 functions[current_func_name].append(quad)
 
+        self.global_symbols = global_symbol_table
+
         self.mips_code = [".data"]
-        global_scope = symbol_tables[0]
-        for name, entry in global_scope.items():
-            if entry.sym_type == SymbolType.VARIABLE:
-                self.mips_code.append(f"{name}: .word 0")
+        self.mips_code.extend(["\n.text", ".globl main", "\n__start:", "    jal main", "    j main_exit"])
 
-        self.mips_code.extend(
-            [
-                "\n.text",
-                ".globl main",
-                "\n# Program entry point",
-                "__start:",
-                "    jal main",
-                "    # Fallthrough to exit after main",
-                "    j main_exit",
-            ]
-        )
+        main_quads = functions.pop("main", [])
+        if main_quads:
+            self.current_symbol_map = {}
+            self.current_symbol_map.update(self.global_symbols)
+            main_entry = self.global_symbols.get("main")
+            if main_entry and "scope" in main_entry.extra_info:
+                self.current_symbol_map.update(main_entry.extra_info["scope"])
+            self._translate_quads(main_quads, self.global_symbols.get("main"))
 
-        all_scopes = {}
-        for scope in symbol_tables:
-            all_scopes.update(scope)
+        self.mips_code.extend(["\nmain_exit:", "    li $v0, 10", "    syscall"])
 
         for name, quads in functions.items():
-            func_entry = all_scopes.get(name)
+            self.current_symbol_map = {}
+            self.current_symbol_map.update(self.global_symbols)
+            func_entry = self.global_symbols.get(name)
+            if func_entry and "scope" in func_entry.extra_info:
+                self.current_symbol_map.update(func_entry.extra_info["scope"])
             self._translate_quads(quads, func_entry)
-
-        self.mips_code.append("\n# MARS exit syscall")
-        self.mips_code.append("main_exit:")
-        self.mips_code.append("    li $v0, 10")
-        self.mips_code.append("    syscall")
 
         return "\n".join(self.mips_code)

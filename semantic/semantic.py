@@ -19,9 +19,7 @@ class Quadruple:
         self.result = result
 
     def __str__(self):
-        return (
-            f"({self.op}, {self.arg1 or '_'}, {self.arg2 or '_'}, {self.result or '_'})"
-        )
+        return f"({self.op}, {self.arg1 or '_'}, {self.arg2 or '_'}, {self.result or '_'})"
 
 
 class SymbolTableEntry:
@@ -55,10 +53,8 @@ class SymbolTableEntry:
 class SemanticError(Exception):
     def __init__(self, message, loc=None):
         self.message = message
-        self.loc = loc if loc else {'row': '?', 'col': '?'}
-        super().__init__(
-            f"Semantic Error: {message}" + (f" at line {self.loc.get('row', '?')}" if loc else "")
-        )
+        self.loc = loc if loc else {"row": "?", "col": "?"}
+        super().__init__(f"Semantic Error: {message}" + (f" at line {self.loc.get('row', '?')}" if loc else ""))
 
 
 # 实际语义分析执行类
@@ -71,6 +67,7 @@ class SemanticAnalyzer:
         self.label_count = 0
         self.current_function = None  # 当前函数的返回值
         self.loop_stack = []  # For break/continue
+        self.current_function_entry = None
 
     def _new_temp(self):
         self.temp_var_count += 1
@@ -169,14 +166,16 @@ class SemanticAnalyzer:
         if type1 == "unknown_inferred":
             # 如果左侧是待推断类型，且右侧是 void，这是不允许的
             if type2 == "void":
-                err_msg = error_message_override or f"Cannot assign a 'void' value to a variable whose type is to be inferred."
+                err_msg = (
+                    error_message_override
+                    or f"Cannot assign a 'void' value to a variable whose type is to be inferred."
+                )
                 raise SemanticError(err_msg, line_num)
-            return True # 允许推断为任何非 void 类型
+            return True  # 允许推断为任何非 void 类型
 
         if type2 == "void" and type1 != "void":
             err_msg = error_message_override or f"Cannot assign a 'void' value to a variable of type {s_type1}."
             raise SemanticError(err_msg, line_num)
-
 
         # Dereferencing: if type1 is T and type2 is &T or &mut T
         if allow_ref_deref:
@@ -184,9 +183,7 @@ class SemanticAnalyzer:
                 "&",
                 "&mut",
             ]:
-                deref_type2 = (
-                    type2[1] if type2[0] == "&" else type2[1]
-                )
+                deref_type2 = type2[1] if type2[0] == "&" else type2[1]
                 if self.get_type_name(type1) == self.get_type_name(deref_type2):
                     pass
 
@@ -210,10 +207,7 @@ class SemanticAnalyzer:
         #   - {'op': 'array', 'element_type': processed_type, 'size': num_val}
         #   - {'op': 'tuple', 'element_types': [processed_type1, ...]}
         # Returns the internal representation of the type.
-        if (
-            isinstance(type_token_or_structure, str)
-            and type_token_or_structure == "i32"
-        ):
+        if isinstance(type_token_or_structure, str) and type_token_or_structure == "i32":
             return "i32"
         elif isinstance(type_token_or_structure, dict):
             op = type_token_or_structure["op"]
@@ -233,32 +227,20 @@ class SemanticAnalyzer:
                     raise SemanticError("Array size must be positive.", line_num)
                 return [
                     "[",
-                    self.process_type(
-                        type_token_or_structure["element_type"], line_num
-                    ),
+                    self.process_type(type_token_or_structure["element_type"], line_num),
                     size,
                 ]
             elif op == "tuple":
-                return tuple(
-                    self.process_type(t, line_num)
-                    for t in type_token_or_structure["element_types"]
-                )
-        raise SemanticError(
-            f"Unknown type structure: {type_token_or_structure}", line_num
-        )
+                return tuple(self.process_type(t, line_num) for t in type_token_or_structure["element_types"])
+        raise SemanticError(f"Unknown type structure: {type_token_or_structure}", line_num)
 
     # Rule 1.1, 1.5, 7.2: Function Declaration
-    def process_function_declaration_header(
-        self, fn_name_token, params_list, return_type_processed, line_num
-    ):
+    def process_function_declaration_header(self, fn_name_token, params_list, return_type_processed, line_num):
         fn_name = fn_name_token["content"]
 
         # 检查函数是否已在全局作用域（通常是 scope 0）被声明
         # 我们直接检查 self.symbol_tables[0]，而不是用 lookup_symbol，因为它找不到时会抛错
-        if (
-            fn_name in self.symbol_tables[0]
-            and self.symbol_tables[0][fn_name].sym_type == SymbolType.FUNCTION
-        ):
+        if fn_name in self.symbol_tables[0] and self.symbol_tables[0][fn_name].sym_type == SymbolType.FUNCTION:
             # 如果确实找到了一个同名且类型为FUNCTION的符号，在 process_function_body_end 之后再检查是否重复定义
             # 或者，如果你希望严格禁止在任何内部作用域“覆盖”全局函数，可以在这里报错
             # 但通常函数声明主要关注全局作用域的冲突
@@ -292,10 +274,10 @@ class SemanticAnalyzer:
             extra_info=extra_info,
         )
 
+        self.current_function_entry = self.symbol_tables[0][fn_name]
+
         entry_label = self._new_label()
-        self.add_quad(
-            "FUNC_BEGIN", arg1=fn_name, result=entry_label
-        )  # 添加到 self.quadruples
+        self.add_quad("FUNC_BEGIN", arg1=fn_name, result=entry_label)  # 添加到 self.quadruples
         quad_func_begin = self.quadruples.pop()  # 从 self.quadruples 中取出
 
         self.current_function = {
@@ -323,21 +305,20 @@ class SemanticAnalyzer:
             "code": [quad_func_begin],
         }  # 将取出的四元式放入返回的 'code' 列表
 
-    def process_function_body_end(
-        self, func_name, line_num, last_expr_attrs_for_implicit_return=None
-    ):
+    def process_function_body_end(self, func_name, line_num, last_expr_attrs_for_implicit_return=None):
         if self.current_function and self.current_function["name"] == func_name:
-            # 创建 FUNC_END 四元式
+            if self.current_function_entry and len(self.symbol_tables) > 1:
+                local_scope = self.symbol_tables[-1]
+                self.current_function_entry.extra_info["scope"] = local_scope
+
             quad_func_end = Quadruple("FUNC_END", func_name, None, None)
 
             self.exit_scope()
             self.current_function = None
-            return {"code": [quad_func_end]}  # 返回包含 FUNC_END 的 'code' 列表
+            self.current_function_entry = None
+
+            return {"code": [quad_func_end]}
         else:
-            # 此处可以抛出错误或返回空的 code，取决于你的错误处理策略
-            # 为了安全，如果 mismatched, 返回空 code 或抛异常
-            # raise SemanticError(f"Mismatched function end for '{func_name}'. Expected '{self.current_function['name'] if self.current_function else 'None'}'.", line_num)
-            # 或者如果current_function为None但尝试结束一个函数
             if not self.current_function:
                 raise SemanticError(
                     f"Attempting to end function '{func_name}' but no function is current.",
@@ -367,12 +348,8 @@ class SemanticAnalyzer:
             loop_ctx = self.loop_stack[-1]
             if loop_ctx.get("expr_type") == "unknown_inferred":
                 if not expr_attrs:  # break; in loop expr
-                    raise SemanticError(
-                        "Loop expression 'break' must provide a value.", line_num
-                    )
-                loop_ctx["expr_type"] = expr_attrs[
-                    "type"
-                ]  # Infer loop type from first break
+                    raise SemanticError("Loop expression 'break' must provide a value.", line_num)
+                loop_ctx["expr_type"] = expr_attrs["type"]  # Infer loop type from first break
             target_type_container = loop_ctx["expr_type"]
         else:  # Regular return
             if not self.current_function:
@@ -382,9 +359,7 @@ class SemanticAnalyzer:
         quads = []
         if expr_attrs:
             quads.extend(expr_attrs.get("code", []))
-            self.check_type_compatibility(
-                target_type_container, expr_attrs["type"], line_num
-            )
+            self.check_type_compatibility(target_type_container, expr_attrs["type"], line_num)
             self.add_quad(op, arg1=expr_attrs["place"])
             quads.append(self.quadruples[-1])
             return {
@@ -394,9 +369,7 @@ class SemanticAnalyzer:
             }  # For expression blocks
         else:  # return; or break; (break; is not allowed in loop expr)
             if is_break_expr:
-                raise SemanticError(
-                    "Loop expression 'break' must provide a value.", line_num
-                )
+                raise SemanticError("Loop expression 'break' must provide a value.", line_num)
 
             if target_type_container != "void":
                 raise SemanticError(
@@ -408,9 +381,7 @@ class SemanticAnalyzer:
 
     # Rule 2.1: let <var_decl_internal> : <type> ;
     # Rule 2.1: let <var_decl_internal> ; (Type inference needed)
-    def process_variable_declaration(
-        self, var_decl_internal_attrs, type_attrs, line_num
-    ):
+    def process_variable_declaration(self, var_decl_internal_attrs, type_attrs, line_num):
         # var_decl_internal_attrs: {'name': str, 'is_mutable': bool, 'line': int}
         # type_attrs: {'type': processed_type, 'code': []} or None
         var_name = var_decl_internal_attrs["name"]
@@ -455,106 +426,84 @@ class SemanticAnalyzer:
                 line_num,
             )
 
-        lvalue_handled = False
-        target_type_for_check = None # 用于存储左值的类型
+        source_place = expr_attrs["place"]
+        target_type = assignable_attrs["type"]
 
-        # 情况1: 简单变量赋值 (例如: x = 10)
-        if assignable_attrs.get("sym_type") in [SymbolType.VARIABLE, SymbolType.PARAMETER]:
-            lvalue_entry = self.lookup_symbol(assignable_attrs["name"], line_num)
+        if assignable_attrs.get("lvalue_base"):
+            if not assignable_attrs.get("is_mutable"):
+                raise SemanticError(
+                    f"Cannot assign to element of immutable array '{assignable_attrs['lvalue_base']}'.", line_num
+                )
+            base_name = assignable_attrs["lvalue_base"]
+            index_place = assignable_attrs["lvalue_index"]
+            self.add_quad("ARRAY_STORE", base_name, index_place, source_place)
+            quads.append(self.quadruples.pop())
+
+        elif assignable_attrs.get("is_lvalue_address_in_place"):
+            if not assignable_attrs.get("is_mutable"):
+                raise SemanticError(f"Cannot assign to content of an immutable reference.", line_num)
+            ptr_name = assignable_attrs["is_lvalue_address_in_place"]
+            self.add_quad("DEREF_STORE", ptr_name, source_place)
+            quads.append(self.quadruples.pop())
+
+        elif assignable_attrs.get("sym_type") in [SymbolType.VARIABLE, SymbolType.PARAMETER]:
+            lvalue_name = assignable_attrs["name"]
+            lvalue_entry = self.lookup_symbol(lvalue_name, line_num)
 
             if not lvalue_entry.is_mutable and lvalue_entry.initialized:
-                raise SemanticError(
-                    f"Cannot assign to immutable variable '{lvalue_entry.name}'.",
-                    line_num,
-                )
+                raise SemanticError(f"Cannot assign to immutable variable '{lvalue_name}'.", line_num)
 
-            target_type_for_check = lvalue_entry.data_type
             if lvalue_entry.data_type == "unknown_inferred":
-                # 如果左值类型之前是未推断的，现在用右值的类型来确定它
-                self.check_type_compatibility(lvalue_entry.data_type, expr_attrs["type"], line_num,
-                    error_message_override=f"Cannot infer type of variable '{lvalue_entry.name}' from a void expression."
-                )
                 lvalue_entry.data_type = expr_attrs["type"]
-                target_type_for_check = lvalue_entry.data_type # 更新用于后续检查的类型
-            
+
+            target_type = lvalue_entry.data_type
             lvalue_entry.initialized = True
-            
-            # self.check_type_compatibility(lvalue_entry.data_type, expr_attrs["type"], line_num)
-            
-            self.add_quad("ASSIGN", expr_attrs["place"], result=assignable_attrs["place"])
+
+            self.add_quad("ASSIGN", source_place, result=lvalue_name)
             quads.append(self.quadruples.pop())
-            lvalue_handled = True
 
-        # 情况2: 向内存地址赋值 (例如: *ptr = 10, array[idx] = 10, tuple.field = 10)
-        elif assignable_attrs.get("is_lvalue_address"):
-            is_array_or_tuple_element = assignable_attrs.get("sym_type") in [SymbolType.ARRAY, SymbolType.TUPLE]
+        else:
+            raise SemanticError(f"Internal Error: Unhandled LValue structure in assignment.", line_num)
 
-            if is_array_or_tuple_element:
-                if not assignable_attrs.get("base_is_mutable"):
-                    raise SemanticError(
-                        f"Cannot assign to element of immutable base '{assignable_attrs.get('name', 'container')}'.",
-                        line_num,
-                    )
-            else: 
-                if not assignable_attrs.get("is_mutable"):
-                    raise SemanticError(
-                        f"Cannot assign to content of dereferenced immutable reference/pointer.",
-                        line_num,
-                    )
-            
-            target_type_for_check = assignable_attrs["type"] # 左值（如 *ptr 或 arr[i]）的类型
-            
-            self.add_quad("STORE", expr_attrs["place"], assignable_attrs["place"])
-            quads.append(self.quadruples.pop())
-            lvalue_handled = True
-        
-        if not lvalue_handled:
-            raise SemanticError(
-                f"Internal Error: Unhandled LValue structure in assignment. Attributes: {assignable_attrs}", line_num
-            )
-
-        if target_type_for_check is None: # 理论上不应发生
-            raise SemanticError("Internal error: Target type for assignment not determined.", line_num)
-
-        self.check_type_compatibility(target_type_for_check, expr_attrs["type"], line_num,
-            error_message_override=f"Cannot assign expression of type {self.get_type_name(expr_attrs['type'])} to lvalue of type {self.get_type_name(target_type_for_check)}."
+        self.check_type_compatibility(
+            target_type,
+            expr_attrs["type"],
+            line_num,
+            error_message_override=f"Type mismatch: cannot assign type '{self.get_type_name(expr_attrs['type'])}' to an lvalue of type '{self.get_type_name(target_type)}'.",
         )
-        
+
         return {"code": quads}
 
     # Rule 2.3: let <var_decl_internal> : <type> = <expr> ;
     # Rule 2.3: let <var_decl_internal> = <expr> ;
-    def process_variable_declaration_assignment(
-        self, var_decl_internal_attrs, type_attrs, expr_attrs, line_num
-    ):
+    def process_variable_declaration_assignment(self, var_decl_internal_attrs, type_attrs, expr_attrs, line_num):
         var_name = var_decl_internal_attrs["name"]
         is_mutable = var_decl_internal_attrs["is_mutable"]
         decl_line = var_decl_internal_attrs["line"]
+
         quads = []
+
+        if not expr_attrs or "place" not in expr_attrs:
+            raise SemanticError(f"Internal Error: Expression attributes are missing 'place' for assignment.", line_num)
+
         quads.extend(expr_attrs.get("code", []))
-
-        var_type = expr_attrs["type"] # 先用表达式的类型作为推断类型
-
-        # 如果表达式类型是
+        var_type = expr_attrs["type"]
         if expr_attrs["type"] == "void":
-            pass # 让 check_type_compatibility 决定
+            raise SemanticError(f"Cannot initialize variable '{var_name}' with a void expression.", line_num)
 
-        if type_attrs:  # 如果给定了显式类型
+        if type_attrs:
             explicit_type = type_attrs["type"]
             if "code" in type_attrs:
                 quads.extend(type_attrs["code"])
-            
-            self.check_type_compatibility(explicit_type, expr_attrs["type"], line_num,
-                error_message_override=f"Cannot initialize variable '{var_name}' of type {self.get_type_name(explicit_type)} with an expression of type {self.get_type_name(expr_attrs['type'])}."
+            self.check_type_compatibility(
+                explicit_type,
+                expr_attrs["type"],
+                line_num,
+                error_message_override=f"Cannot initialize variable '{var_name}' of type {self.get_type_name(explicit_type)} with an expression of type {self.get_type_name(expr_attrs['type'])}.",
             )
-            var_type = explicit_type  # 使用声明的类型
-        elif var_type == "void": # 如果没有显式类型，且推断出是 void
-             raise SemanticError(
-                f"Cannot declare variable '{var_name}' with inferred type 'void' from a void expression.", line_num
-            )
+            var_type = explicit_type
 
-
-        self.add_symbol(
+        entry = self.add_symbol(
             var_name,
             SymbolType.VARIABLE,
             var_type,
@@ -562,7 +511,11 @@ class SemanticAnalyzer:
             is_mutable,
             initialized=True,
         )
-        self.add_quad("ASSIGN", expr_attrs["place"], result=var_name)
+
+        source_place = expr_attrs["place"]
+        dest_place = var_name
+
+        self.add_quad("ASSIGN", source_place, result=dest_place)
         quads.append(self.quadruples.pop())
 
         return {
@@ -575,72 +528,39 @@ class SemanticAnalyzer:
 
     # Rule 3.1 <元素> -> <NUM> | <可赋值元素> | ( <表达式> )
     def process_element(self, element_token_or_attrs, line_num):
-        # element_token_or_attrs:
-        #  - if NUM: {'type': tokenType.INTEGER_CONSTANT, 'content': '123', 'loc': ...}
-        #  - if <可赋值元素> (ID, array_access, tuple_access): result of process_assignable_element
-        #  - if (<表达式>): result of process_expression (expr_attrs)
-
-        if (
-            isinstance(element_token_or_attrs, dict)
-            and "prop" in element_token_or_attrs
-        ):  # Terminal token like NUM
+        if isinstance(element_token_or_attrs, dict) and "prop" in element_token_or_attrs:
             token_prop = element_token_or_attrs["prop"]
             token_content = element_token_or_attrs["content"]
             if token_prop == tokenType.INTEGER_CONSTANT:
-                # For constants, 'place' is the constant value itself
                 return {"type": "i32", "place": int(token_content), "code": []}
-            # Add other constants like CHAR_CONSTANT, STRING_CONSTANT if they are expressions
             else:
-                raise SemanticError(
-                    f"Unsupported terminal in expression: {token_content}", line_num
-                )
+                raise SemanticError(f"Unsupported terminal in expression: {token_content}", line_num)
 
-        # If it's from <可赋值元素> or (<表达式>), it's already processed attrs
-        # For <可赋值元素>, it needs to be treated as an R-value.
-        # 'place' could be a variable name or a temporary holding an array/tuple element's value.
-        # A 'LOAD' quad might be needed if 'place' is a direct variable name and we need its value in a temp.
-        # For simplicity, if 'place' is a variable, downstream ops will use it directly.
-        # If it's a complex l-value (like a[i]), its 'place' is already a temp from address calculation.
-        elif (
-            isinstance(element_token_or_attrs, dict)
-            and "type" in element_token_or_attrs
-        ):
-            # If it's an LValue used as RValue, ensure it's initialized
-            if "name" in element_token_or_attrs and not element_token_or_attrs.get(
-                "is_temp_lvalue"
-            ):
-                entry = self.lookup_symbol(element_token_or_attrs["name"], line_num)
-                if not entry.initialized:
-                    raise SemanticError(
-                        f"Variable '{entry.name}' used before initialization.", line_num
-                    )
+        elif isinstance(element_token_or_attrs, dict) and "type" in element_token_or_attrs:
+            attrs = element_token_or_attrs
+            quads = attrs.get("code", [])
 
-                # If the LValue was an array/tuple itself, its 'place' is the name.
-                # If it was an element access, its 'place' is a temp holding the value/address.
-                # We might need to generate a load instruction if the 'place' is an address.
-                # For now, assume 'place' from process_assignable_element holds the value or is directly usable.
-                if element_token_or_attrs.get(
-                    "is_lvalue_address"
-                ):  # from array/tuple element access not yet dereferenced
+            if attrs.get("is_lvalue"):
+                if "name" in attrs and not attrs.get("is_temp_lvalue"):
+                    entry = self.lookup_symbol(attrs["name"], line_num)
+                    if not entry.initialized:
+                        raise SemanticError(f"Variable '{entry.name}' used before initialization.", line_num)
+
+                if attrs.get("lvalue_base"):  # It's an array element lvalue: a[i]
                     temp_val = self._new_temp()
-                    current_quads = element_token_or_attrs.get("code", [])
-                    current_quads.append(
-                        Quadruple(
-                            "LOAD_FROM_ADDR",
-                            element_token_or_attrs["place"],
-                            None,
-                            temp_val,
-                        )
-                    )
-                    return {
-                        "type": element_token_or_attrs["type"],
-                        "place": temp_val,
-                        "code": current_quads,
-                    }
+                    self.add_quad("ARRAY_LOAD", attrs["lvalue_base"], attrs["lvalue_index"], temp_val)
+                    quads.append(self.quadruples.pop())
+                    attrs["place"] = temp_val
+                    return attrs
 
-            return (
-                element_token_or_attrs  # Pass through attrs from (expr) or assignable
-            )
+                elif attrs.get("is_lvalue_address_in_place"):  # It's a dereferenced pointer lvalue: *p
+                    temp_val = self._new_temp()
+                    self.add_quad("DEREF_LOAD", attrs["is_lvalue_address_in_place"], result=temp_val)
+                    quads.append(self.quadruples.pop())
+                    attrs["place"] = temp_val
+                    return attrs
+
+            return attrs
         else:
             raise SemanticError("Invalid element structure in expression.", line_num)
 
@@ -648,11 +568,6 @@ class SemanticAnalyzer:
     # Rule 8.2: <可赋值元素> -> <元素> '[' <表达式> ']'
     # Rule 9.2: <可赋值元素> -> <元素> '.' <NUM>
     def process_assignable_element(self, structure, line_num):
-        # structure:
-        #   - {'type': 'id', 'token': id_token}
-        #   - {'type': 'array_access', 'base': element_attrs, 'index': expr_attrs}
-        #   - {'type': 'tuple_access', 'base': element_attrs, 'index_token': num_token}
-        # Returns: {'name': str, 'type': type, 'is_lvalue': True, 'is_mutable': bool, 'place': ..., 'code': [], 'sym_type': ..., 'base_is_mutable': ...}
         stype = structure["type"]
         quads = []
 
@@ -660,7 +575,6 @@ class SemanticAnalyzer:
             id_token = structure["token"]
             id_name = id_token["content"]
             entry = self.lookup_symbol(id_name, line_num)
-            # For LValue use, place is the name. For RValue, its value might be loaded.
             return {
                 "name": id_name,
                 "type": entry.data_type,
@@ -672,27 +586,14 @@ class SemanticAnalyzer:
                 "initialized": entry.initialized,
             }
         elif stype == "array_access":
-            base_attrs = structure["base"]  # Comes from process_element
-            index_attrs = structure["index"]  # Comes from process_expression
-
+            base_attrs = structure["base"]
+            index_attrs = structure["index"]
             quads.extend(base_attrs.get("code", []))
             quads.extend(index_attrs.get("code", []))
 
-            base_entry = None
-            # Base can be a variable or a result of another operation (e.g. function call returning array, or *ref_to_array)
-            if "name" in base_attrs and not base_attrs.get(
-                "is_temp_lvalue"
-            ):  # if base_attrs['place'] is a direct variable name
-                base_entry = self.lookup_symbol(base_attrs["name"], line_num)
-                base_type = base_entry.data_type
-                base_is_mut = base_entry.is_mutable
-                base_place = base_entry.name
-            else:  # Base is temporary, e.g. from *(&mut arr)[i] or func_call()[i]
-                base_type = base_attrs["type"]
-                base_is_mut = base_attrs.get(
-                    "is_mutable", True
-                )  # Temp results are often mutable in effect
-                base_place = base_attrs["place"]
+            base_type = base_attrs["type"]
+            base_is_mut = base_attrs.get("is_mutable", False)
+            base_place = base_attrs["place"]
 
             if not (isinstance(base_type, list) and base_type[0] == "["):
                 raise SemanticError(
@@ -706,79 +607,20 @@ class SemanticAnalyzer:
                 )
 
             element_type = base_type[1]
-            array_len = base_type[2]
-
-            # Runtime bounds check (conceptual quad, can be expanded)
-            # self.add_quad("BOUNDS_CHECK", index_attrs['place'], array_len, None)
-            # quads.append(self.quadruples.pop())
-
-            # Address calculation: result_addr = base_addr + index * element_size
-            # element_size needs to be known. For i32, assume 1 unit for simplicity here.
-            # More realistically, this would be platform dependent.
-            addr_temp = self._new_temp()
-            self.add_quad(
-                "ARRAY_ACCESS_ADDR", base_place, index_attrs["place"], addr_temp
-            )
-            quads.append(self.quadruples.pop())
 
             return {
-                "name": base_attrs.get(
-                    "name", "array_element"
-                ),  # Name for error reporting
-                "type": element_type,
-                "is_lvalue": True,
-                "is_mutable": base_is_mut,  # Element mutability depends on base array
-                "place": addr_temp,
-                "code": quads,
-                "sym_type": SymbolType.ARRAY,
-                "base_is_mutable": base_is_mut,
-                "is_lvalue_address": True,
-            }
-
-        elif stype == "tuple_access":
-            base_attrs = structure["base"]
-            index_val = int(structure["index_token"]["content"])
-            quads.extend(base_attrs.get("code", []))
-
-            base_entry = None
-            if "name" in base_attrs and not base_attrs.get("is_temp_lvalue"):
-                base_entry = self.lookup_symbol(base_attrs["name"], line_num)
-                base_type = base_entry.data_type
-                base_is_mut = base_entry.is_mutable
-                base_place = base_entry.name
-            else:
-                base_type = base_attrs["type"]
-                base_is_mut = base_attrs.get("is_mutable", True)
-                base_place = base_attrs["place"]
-
-            if not isinstance(base_type, tuple):
-                raise SemanticError(
-                    f"Cannot apply '.' operator to non-tuple type '{self.get_type_name(base_type)}'.",
-                    line_num,
-                )
-
-            if not (0 <= index_val < len(base_type)):
-                raise SemanticError(
-                    f"Tuple index {index_val} out of bounds for tuple of length {len(base_type)}.",
-                    line_num,
-                )
-
-            element_type = base_type[index_val]
-            addr_temp = self._new_temp()  # Placeholder for tuple element access
-            self.add_quad("TUPLE_ACCESS_ADDR", base_place, index_val, addr_temp)
-            quads.append(self.quadruples.pop())
-
-            return {
-                "name": base_attrs.get("name", "tuple_element"),
+                "name": base_attrs.get("name", "array_element"),
                 "type": element_type,
                 "is_lvalue": True,
                 "is_mutable": base_is_mut,
-                "place": addr_temp,
                 "code": quads,
-                "sym_type": SymbolType.TUPLE,
-                "base_is_mutable": base_is_mut,
-                "is_lvalue_address": True,
+                "lvalue_base": base_place,
+                "lvalue_index": index_attrs["place"],
             }
+
+        elif stype == "tuple_access":
+            raise NotImplementedError("Tuple assignment not fully implemented in this version.")
+
         raise SemanticError(f"Unknown assignable element structure: {stype}", line_num)
 
     # Rule 3.2: Arithmetic and Comparison ops
@@ -797,18 +639,12 @@ class SemanticAnalyzer:
             result_type = "i32"
             quad_op_map = {"+": "ADD", "-": "SUB", "*": "MUL", "/": "DIV"}
             quad_op = quad_op_map[op_str]
-            if (
-                op_str == "/"
-                and isinstance(right_attrs["place"], int)
-                and right_attrs["place"] == 0
-            ):
+            if op_str == "/" and isinstance(right_attrs["place"], int) and right_attrs["place"] == 0:
                 raise SemanticError("Division by zero.", line_num)
 
         elif op_str in ["<", "<=", ">", ">=", "==", "!="]:
             # For simplicity, assume i32 comparison. Could be extended.
-            self.check_type_compatibility(
-                left_attrs["type"], right_attrs["type"], line_num
-            )  # Must be same type
+            self.check_type_compatibility(left_attrs["type"], right_attrs["type"], line_num)  # Must be same type
             if left_attrs["type"] != "i32":  # Or allow other comparable types
                 raise SemanticError(
                     f"Comparison not supported for type {self.get_type_name(left_attrs['type'])}.",
@@ -853,9 +689,7 @@ class SemanticAnalyzer:
 
         for i, arg_attrs in enumerate(actual_args_attrs_list):
             quads.extend(arg_attrs.get("code", []))
-            self.check_type_compatibility(
-                expected_params[i]["type"], arg_attrs["type"], line_num
-            )
+            self.check_type_compatibility(expected_params[i]["type"], arg_attrs["type"], line_num)
             self.add_quad("PARAM", arg_attrs["place"])  # Push param for call
             quads.append(self.quadruples.pop())
 
@@ -883,13 +717,9 @@ class SemanticAnalyzer:
         # Placeholder for jump instruction, address will be backpatched.
         # JUMP_IF_FALSE <condition_place> <label_for_else_or_endif>
         # Store index of this quad for backpatching
-        after_if_label = (
-            self._new_label()
-        )  # Label for code after true block (used by JUMP_IF_FALSE)
+        after_if_label = self._new_label()  # Label for code after true block (used by JUMP_IF_FALSE)
         if_quad_idx = len(self.quadruples)
-        self.add_quad(
-            "IF_FALSE", condition_attrs["place"], result=after_if_label
-        )  # Target label to be filled
+        self.add_quad("IF_FALSE", condition_attrs["place"], result=after_if_label)  # Target label to be filled
         quads.append(self.quadruples.pop())
 
         # Return the label for the 'else' or 'endif' part and the list of quads generated for condition
@@ -915,9 +745,7 @@ class SemanticAnalyzer:
 
         return {
             "end_if_label": end_if_label,
-            "after_if_label": if_data[
-                "after_if_label"
-            ],  # This is where JUMP_IF_FALSE goes
+            "after_if_label": if_data["after_if_label"],  # This is where JUMP_IF_FALSE goes
             "else_jump_quad_idx": else_quad_idx if not is_if_expression else -1,
         }
 
@@ -941,9 +769,7 @@ class SemanticAnalyzer:
         if is_if_expression:
             if not else_branch_attrs:
                 raise SemanticError("If expression must have an else block.", line_num)
-            self.check_type_compatibility(
-                true_branch_attrs["type"], else_branch_attrs["type"], line_num
-            )
+            self.check_type_compatibility(true_branch_attrs["type"], else_branch_attrs["type"], line_num)
             # The result of the if expression needs to be stored
             result_place = self._new_temp()
             # After true branch, assign its result and jump to end
@@ -986,19 +812,11 @@ class SemanticAnalyzer:
         else:  # If statement
             # Backpatch the JUMP from end of true block (if there was an else)
             if if_else_data.get("else_jump_quad_idx", -1) != -1:
-                self.quadruples[if_else_data["else_jump_quad_idx"]].result = (
-                    if_else_data["end_if_label"]
-                )
-            elif (
-                if_else_data.get("if_quad_idx", -1) != -1
-            ):  # No else block, backpatch the original IF_FALSE
-                self.quadruples[if_else_data["if_quad_idx"]].result = if_else_data[
-                    "end_if_label"
-                ]
+                self.quadruples[if_else_data["else_jump_quad_idx"]].result = if_else_data["end_if_label"]
+            elif if_else_data.get("if_quad_idx", -1) != -1:  # No else block, backpatch the original IF_FALSE
+                self.quadruples[if_else_data["if_quad_idx"]].result = if_else_data["end_if_label"]
 
-            self.add_quad(
-                "LABEL", result=if_else_data["end_if_label"]
-            )  # Label for end of if-else structure
+            self.add_quad("LABEL", result=if_else_data["end_if_label"])  # Label for end of if-else structure
             quads.append(self.quadruples.pop())
             return {"code": quads}
 
@@ -1031,9 +849,7 @@ class SemanticAnalyzer:
             )
 
         # JUMP_IF_FALSE <condition_place> <loop_end_label>
-        self.add_quad(
-            "IF_FALSE", condition_attrs["place"], result=loop_data["end_label"]
-        )
+        self.add_quad("IF_FALSE", condition_attrs["place"], result=loop_data["end_label"])
         quads.append(self.quadruples.pop())
         return {"quads": quads}
 
@@ -1047,9 +863,7 @@ class SemanticAnalyzer:
         return {"quads": [self.quadruples[-2], self.quadruples[-1]]}
 
     # 5.2 for <pattern> in <expression1> .. <expression2> { <block> }
-    def process_for_loop_begin(
-        self, loop_var_name, range_start_expr, range_end_expr, line_num
-    ):
+    def process_for_loop_begin(self, loop_var_name, range_start_expr, range_end_expr, line_num):
         loop_start_label = self._new_label()  # loop body start
         loop_end_label = self._new_label()  # loop exit
         iter_temp = self._new_temp()  # holds current iterator value
@@ -1131,28 +945,20 @@ class SemanticAnalyzer:
 
         loop_start_label = self._new_label()
         loop_end_label = self._new_label()
-        
+
         self.add_quad("LABEL", result=loop_start_label)
         label_quad = self.quadruples.pop()
 
-        loop_ctx = {
-            "type": "loop",
-            "start_label": loop_start_label,
-            "end_label": loop_end_label,
-            "line_num": line_num
-        }
+        loop_ctx = {"type": "loop", "start_label": loop_start_label, "end_label": loop_end_label, "line_num": line_num}
 
         if is_expression:
             loop_ctx["is_expr_loop"] = True
-            loop_ctx["expr_type"] = "unknown_inferred" 
+            loop_ctx["expr_type"] = "unknown_inferred"
             loop_ctx["result_place"] = self._new_temp()
-        
+
         self.loop_stack.append(loop_ctx)
-        
-        return {
-            "quads": [label_quad], 
-            "loop_ctx": loop_ctx 
-        }
+
+        return {"quads": [label_quad], "loop_ctx": loop_ctx}
 
     def process_loop_end(self, loop_data, line_num):
         if not loop_data or "loop_ctx" not in loop_data:
@@ -1163,9 +969,11 @@ class SemanticAnalyzer:
         quads_added_by_this_func = []
 
         # 1. 从 loop_stack 中弹出当前循环上下文，并进行校验
-        if not (self.loop_stack and \
-                self.loop_stack[-1]["type"] == loop_ctx["type"] and \
-                self.loop_stack[-1]["start_label"] == loop_ctx["start_label"]): # 确保栈顶与传入的ctx匹配
+        if not (
+            self.loop_stack
+            and self.loop_stack[-1]["type"] == loop_ctx["type"]
+            and self.loop_stack[-1]["start_label"] == loop_ctx["start_label"]
+        ):  # 确保栈顶与传入的ctx匹配
             err_msg = "Mismatched loop structure (end). "
             if not self.loop_stack:
                 err_msg += "Loop stack is empty."
@@ -1173,10 +981,10 @@ class SemanticAnalyzer:
                 err_msg += f"Expected loop starting at L{loop_ctx['start_label']}, but stack top is L{self.loop_stack[-1]['start_label']} of type {self.loop_stack[-1]['type']}."
             raise SemanticError(err_msg, line_num)
 
-        self.loop_stack.pop() # 弹出上下文
+        self.loop_stack.pop()  # 弹出上下文
 
         # 2. 根据循环类型生成特定结尾四元式
-        if loop_ctx["type"] == "loop" and not loop_ctx.get("is_expr_loop"): 
+        if loop_ctx["type"] == "loop" and not loop_ctx.get("is_expr_loop"):
             self.add_quad("JUMP", result=loop_ctx["start_label"])
             quads_added_by_this_func.append(self.quadruples.pop())
 
@@ -1186,15 +994,15 @@ class SemanticAnalyzer:
         # 3. 准备返回属性
         result_attrs = {"quads": quads_added_by_this_func}
 
-        if loop_ctx.get("is_expr_loop"): # 特指 LoopExpression
+        if loop_ctx.get("is_expr_loop"):  # 特指 LoopExpression
             if loop_ctx["expr_type"] == "unknown_inferred":
-                result_attrs["type"] = "void" 
-                result_attrs["place"] = None 
-            else: # 类型已由 'break <value>;' 推断
+                result_attrs["type"] = "void"
+                result_attrs["place"] = None
+            else:  # 类型已由 'break <value>;' 推断
                 result_attrs["type"] = loop_ctx["expr_type"]
                 result_attrs["place"] = loop_ctx["result_place"]
-        else: # 对于普通 loop 语句 (以及 while, for 语句)
-            result_attrs["type"] = "void" 
+        else:  # 对于普通 loop 语句 (以及 while, for 语句)
+            result_attrs["type"] = "void"
 
         return result_attrs
 
@@ -1228,9 +1036,7 @@ class SemanticAnalyzer:
         elif keyword == "break":
             if loop_ctx.get("is_expr_loop"):  # loop 表达式中的 break <expr>
                 if not expr_attrs:
-                    raise SemanticError(
-                        "Loop expression 'break' must provide a value.", line_num
-                    )
+                    raise SemanticError("Loop expression 'break' must provide a value.", line_num)
 
                 # 生成 break 表达式的计算代码
                 quads.extend(expr_attrs.get("code", []))
@@ -1239,14 +1045,10 @@ class SemanticAnalyzer:
                 if loop_ctx["expr_type"] == "unknown_inferred":
                     loop_ctx["expr_type"] = expr_attrs["type"]
                 else:
-                    self.check_type_compatibility(
-                        loop_ctx["expr_type"], expr_attrs["type"], line_num
-                    )
+                    self.check_type_compatibility(loop_ctx["expr_type"], expr_attrs["type"], line_num)
 
                 # 赋值到 loop 表达式的 result_place
-                self.add_quad(
-                    "ASSIGN", expr_attrs["place"], result=loop_ctx["result_place"]
-                )
+                self.add_quad("ASSIGN", expr_attrs["place"], result=loop_ctx["result_place"])
                 assign_quad = self.quadruples.pop()
                 quads.append(assign_quad)
 
@@ -1271,99 +1073,52 @@ class SemanticAnalyzer:
     # Rule 6.2: References and Dereferences
     # <因子> -> '*' <因子> | '&' mut <因子> | '&' <因子>
     def process_reference_op(self, op_type, target_attrs, line_num):
-        # op_type: '*', '&', '&mut'
-        # target_attrs: attributes of the factor being operated on
         quads = []
         quads.extend(target_attrs.get("code", []))
         target_type = target_attrs["type"]
         target_place = target_attrs["place"]
         result_place = self._new_temp()
 
-        if op_type == "*":  # Dereference
+        if op_type == "*":
             if not (isinstance(target_type, list) and target_type[0] in ["&", "&mut"]):
                 raise SemanticError(
                     f"Cannot dereference non-reference type '{self.get_type_name(target_type)}'.",
                     line_num,
                 )
 
-            # Borrow checking: Dereferencing a shared ref is fine. Dereferencing a mut ref requires exclusive access.
-            # This simplistic check doesn't fully model Rust's borrow checker.
-            # If it's a named variable, check its borrow state.
-            if "name" in target_attrs:
-                target_entry = self.lookup_symbol(target_attrs["name"], line_num)
-                # Actual borrow checking logic is more complex, involving lifetimes etc.
-                # For now, assume valid if type is correct.
+            result_type = target_type[1]
 
-            result_type = target_type[1]  # The inner type
-            self.add_quad("DEREF", target_place, result=result_place)
-            # The result_place now holds the value. If used as LValue, it needs to be an address.
-            # This means DEREF might produce an address or a value based on context.
-            # For simplicity: DEREF here gives value. If *p = ..., then DEREF gives address.
-            # Let's refine: DEREF gives address. LOAD_FROM_ADDR gets value.
-            # So, if *p is used as RValue, it's (DEREF p, t1), (LOAD_FROM_ADDR t1, t2)
-            # If *p is LValue, (DEREF p, t1) and t1 is the address.
+            self.add_quad("DEREF_LOAD", target_place, result=result_place)
             quads.append(self.quadruples.pop())
+
             return {
                 "type": result_type,
                 "place": result_place,
                 "code": quads,
                 "is_lvalue": True,
                 "is_mutable": (target_type[0] == "&mut"),
-                "is_lvalue_address": True,
-                "is_temp_lvalue": True,
-            }  # Temp lvalue from deref
+                "is_lvalue_address_in_place": target_place,
+            }
 
         elif op_type == "&" or op_type == "&mut":
-            # Target must be an LValue
             if not target_attrs.get("is_lvalue"):
                 raise SemanticError(f"Cannot take reference of non-lvalue.", line_num)
 
-            # For &mut, target must be mutable
             target_name = target_attrs.get("name")
-            target_is_actually_mutable = target_attrs.get("is_mutable", False)
+            target_is_mutable = target_attrs.get("is_mutable", False)
 
-            if (
-                "is_temp_lvalue" in target_attrs and target_attrs["is_temp_lvalue"]
-            ):  # e.g. &(*foo) or &arr[i]
-                pass  # Mutability comes from target_attrs['is_mutable']
-            elif target_name:
-                target_entry = self.lookup_symbol(target_name, line_num)
-                target_is_actually_mutable = target_entry.is_mutable
-                # Borrow checking (simplified):
-                if op_type == "&mut":
-                    if (
-                        target_entry.active_borrows["immutable"] > 0
-                        or target_entry.active_borrows["mutable"] > 0
-                    ):
-                        raise SemanticError(
-                            f"Cannot take mutable reference to '{target_name}' as it's already borrowed.",
-                            line_num,
-                        )
-                    target_entry.active_borrows["mutable"] += 1
-                else:  # op_type == '&'
-                    if target_entry.active_borrows["mutable"] > 0:
-                        raise SemanticError(
-                            f"Cannot take immutable reference to '{target_name}' as it's already mutably borrowed.",
-                            line_num,
-                        )
-                    target_entry.active_borrows["immutable"] += 1
-            else:  # Referencing something without a direct symbol table entry (e.g. complex expr result)
-                if op_type == "&mut" and not target_is_actually_mutable:
-                    raise SemanticError(
-                        f"Cannot take mutable reference to an immutable temporary value.",
-                        line_num,
-                    )
+            if not target_attrs.get("is_temp_lvalue") and target_name:
+                entry = self.lookup_symbol(target_name, line_num)
+                target_is_mutable = entry.is_mutable
 
-            if op_type == "&mut" and not target_is_actually_mutable:
+            if op_type == "&mut" and not target_is_mutable:
                 raise SemanticError(
-                    f"Cannot take mutable reference of immutable '{target_attrs.get('name', 'value')}'.",
-                    line_num,
+                    f"Cannot take mutable reference of immutable '{target_attrs.get('name', 'value')}'.", line_num
                 )
 
-            result_type = [op_type, target_type]  # e.g. ['&mut', 'i32']
+            result_type = [op_type, target_type]
             self.add_quad("REF", target_place, result=result_place)
             quads.append(self.quadruples.pop())
-            # TODO: decrement borrow counts when references go out of scope (complex)
 
             return {"type": result_type, "place": result_place, "code": quads}
 
@@ -1374,9 +1129,7 @@ class SemanticAnalyzer:
         self.enter_scope()
         # For if/loop expressions, the block's "result" (type and place) is important.
 
-    def process_expression_block_end(
-        self, stmts_attrs_list, final_expr_attrs, line_num
-    ):
+    def process_expression_block_end(self, stmts_attrs_list, final_expr_attrs, line_num):
         # stmts_attrs_list: list of codes from statements
         # final_expr_attrs: {'type': type, 'place': temp, 'code': []} or None if block ends with ';'
         quads = []
@@ -1438,9 +1191,7 @@ class SemanticAnalyzer:
         final_array_type = ["[", literal_element_type, num_elements]
 
         if declared_type_attrs:
-            self.check_type_compatibility(
-                declared_type_attrs["type"], final_array_type, line_num
-            )
+            self.check_type_compatibility(declared_type_attrs["type"], final_array_type, line_num)
             # Use the declared type as the definitive one if compatible
             final_array_type = declared_type_attrs["type"]
 
@@ -1460,6 +1211,34 @@ class SemanticAnalyzer:
             quads.append(self.quadruples.pop())
 
         return {"type": final_array_type, "place": array_place, "code": quads}
+
+    def process_array_access(self, array_attrs, index_attrs, line_num):
+        quads = []
+        quads.extend(array_attrs.get("code", []))
+        quads.extend(index_attrs.get("code", []))
+
+        array_type = array_attrs.get("type")
+        array_place = array_attrs.get("place")
+        index_place = index_attrs.get("place")
+
+        if not (isinstance(array_type, list) and array_type[0] == "["):
+            raise SemanticError(f"Cannot index non-array type '{self.get_type_name(array_type)}'.", line_num)
+
+        element_type = array_type[1]
+        result_place = self._new_temp()
+
+        self.add_quad("ARRAY_LOAD", array_place, index_place, result_place)
+        quads.append(self.quadruples.pop())
+
+        return {
+            "type": element_type,
+            "place": result_place,
+            "code": quads,
+            "is_lvalue": True,
+            "is_mutable": array_attrs.get("is_mutable", False),
+            "lvalue_base": array_place,
+            "lvalue_index": index_place,
+        }
 
     # Rule 9.1: Tuple literal (elem1, elem2, ...)
     # Rule 9.1: Tuple type declaration (type1, type2, ...) (handled in process_type)
@@ -1481,12 +1260,8 @@ class SemanticAnalyzer:
             final_tuple_type = tuple(element_types)
 
         if declared_type_attrs:
-            self.check_type_compatibility(
-                declared_type_attrs["type"], final_tuple_type, line_num
-            )
-            final_tuple_type = declared_type_attrs[
-                "type"
-            ]  # Use declared type if compatible
+            self.check_type_compatibility(declared_type_attrs["type"], final_tuple_type, line_num)
+            final_tuple_type = declared_type_attrs["type"]  # Use declared type if compatible
 
         tuple_place = self._new_temp()
         # Similar to array, (TUPLE_INIT, result_tuple_place, num_elements)
@@ -1511,8 +1286,6 @@ class SemanticAnalyzer:
     #     all_quads.extend(attrs_from_end.get("quads", []))
 
     #     return {"code": all_quads, "type": "void"}
-
-
 
     def get_quadruples(self):
         return self.quadruples
@@ -1576,9 +1349,7 @@ class SemanticAnalyzer:
         elif production_rule_str == "DeclarationList -> Declaration DeclarationList":
             decl_attrs = get_child_attrs(0)
             decl_list_tail_attrs = get_child_attrs(1)
-            combined_code = decl_attrs.get("code", []) + decl_list_tail_attrs.get(
-                "code", []
-            )
+            combined_code = decl_attrs.get("code", []) + decl_list_tail_attrs.get("code", [])
             return {"code": combined_code}
 
         elif production_rule_str == "Declaration -> FunctionDeclaration":
@@ -1588,16 +1359,12 @@ class SemanticAnalyzer:
         elif production_rule_str == "VariableDeclarationInner -> MUT IDENTIFIER":
             mut_token = get_token_obj_from_child(0)
             identifier_token = get_token_obj_from_child(1)
-            attrs = self.process_variable_decl_internal(
-                identifier_token, mut_token, approx_loc
-            )
+            attrs = self.process_variable_decl_internal(identifier_token, mut_token, approx_loc)
             attrs["code"] = []  # 此规则本身不产生代码，但返回的属性应有code字段
             return attrs
         elif production_rule_str == "VariableDeclarationInner -> IDENTIFIER":
             identifier_token = get_token_obj_from_child(0)
-            attrs = self.process_variable_decl_internal(
-                identifier_token, None, approx_loc
-            )
+            attrs = self.process_variable_decl_internal(identifier_token, None, approx_loc)
             attrs["code"] = []
             return attrs
 
@@ -1605,37 +1372,25 @@ class SemanticAnalyzer:
         elif production_rule_str == "Assignable -> IDENTIFIER":
             identifier_token = get_token_obj_from_child(0)
             # process_assignable_element 返回的字典应包含 'code' (通常为空)
-            return self.process_assignable_element(
-                {"type": "id", "token": identifier_token}, approx_loc
-            )
-        elif (
-            production_rule_str == "Assignable -> MULT IDENTIFIER"
-        ):  # 假设 MULT 是解引用 '*'
+            return self.process_assignable_element({"type": "id", "token": identifier_token}, approx_loc)
+        elif production_rule_str == "Assignable -> MULT IDENTIFIER":  # 假设 MULT 是解引用 '*'
             # id_attrs 应包含 'code' (来自可能的复杂IDENTIFIER的解析)
-            id_attrs = self.process_assignable_element(
-                {"type": "id", "token": get_token_obj_from_child(1)}, approx_loc
-            )
+            id_attrs = self.process_assignable_element({"type": "id", "token": get_token_obj_from_child(1)}, approx_loc)
             # process_reference_op 应返回包含解引用代码的 'code'
             ref_op_attrs = self.process_reference_op("*", id_attrs, approx_loc)
             # 合并代码
             combined_code = id_attrs.get("code", []) + ref_op_attrs.get("code", [])
             ref_op_attrs["code"] = combined_code
             return ref_op_attrs
-        elif (
-            production_rule_str == "Assignable -> Primary LBRACK Expression RBRACK"
-        ):  # 数组元素访问作为左值
-            primary_attrs = get_child_attrs(
-                0
-            )  # Primary (可能是数组名或更复杂的表达式结果)
+        elif production_rule_str == "Assignable -> Primary LBRACK Expression RBRACK":  # 数组元素访问作为左值
+            primary_attrs = get_child_attrs(0)  # Primary (可能是数组名或更复杂的表达式结果)
             expr_attrs = get_child_attrs(2)  # Expression (索引)
             # process_assignable_element 处理数组访问时，会合并 base 和 index 的 code
             return self.process_assignable_element(
                 {"type": "array_access", "base": primary_attrs, "index": expr_attrs},
                 approx_loc,
             )
-        elif (
-            production_rule_str == "Assignable -> Primary DOT INTEGER_CONSTANT"
-        ):  # 元组元素访问作为左值
+        elif production_rule_str == "Assignable -> Primary DOT INTEGER_CONSTANT":  # 元组元素访问作为左值
             primary_attrs = get_child_attrs(0)  # Primary (元组)
             index_token = get_token_obj_from_child(2)  # INTEGER_CONSTANT (索引)
             return self.process_assignable_element(
@@ -1664,10 +1419,7 @@ class SemanticAnalyzer:
                 "code": inner_type_attrs.get("code", []),
                 "token_obj": get_token_obj_from_child(0),
             }
-        elif (
-            production_rule_str
-            == "Type -> LBRACK Type SEMICOLON INTEGER_CONSTANT RBRACK"
-        ):
+        elif production_rule_str == "Type -> LBRACK Type SEMICOLON INTEGER_CONSTANT RBRACK":
             element_type_attrs = get_child_attrs(1)
             size_token = get_token_obj_from_child(3)
             size = -1
@@ -1697,9 +1449,7 @@ class SemanticAnalyzer:
         # --- TupleTypeInternal / TypeList ---
         elif production_rule_str == "TupleTypeInternal -> epsilon":
             return {"element_types": [], "code": []}
-        elif (
-            production_rule_str == "TupleTypeInternal -> Type"
-        ):  # 按照文法，这可能用于 (T) 形式，通常不认为是元组
+        elif production_rule_str == "TupleTypeInternal -> Type":  # 按照文法，这可能用于 (T) 形式，通常不认为是元组
             type_attrs = get_child_attrs(0)
             return {
                 "element_types": [type_attrs.get("type")],
@@ -1708,9 +1458,7 @@ class SemanticAnalyzer:
         elif production_rule_str == "TupleTypeInternal -> Type COMMA TypeList":
             first_type_attrs = get_child_attrs(0)
             type_list_attrs = get_child_attrs(2)
-            element_types = [first_type_attrs.get("type")] + type_list_attrs.get(
-                "element_types", []
-            )
+            element_types = [first_type_attrs.get("type")] + type_list_attrs.get("element_types", [])
             code = first_type_attrs.get("code", []) + type_list_attrs.get("code", [])
             return {"element_types": element_types, "code": code}
         elif production_rule_str == "TypeList -> epsilon":
@@ -1724,31 +1472,20 @@ class SemanticAnalyzer:
         elif production_rule_str == "TypeList -> Type COMMA TypeList":
             first_type_attrs = get_child_attrs(0)
             tail_type_list_attrs = get_child_attrs(2)
-            element_types = [first_type_attrs.get("type")] + tail_type_list_attrs.get(
-                "element_types", []
-            )
-            code = first_type_attrs.get("code", []) + tail_type_list_attrs.get(
-                "code", []
-            )
+            element_types = [first_type_attrs.get("type")] + tail_type_list_attrs.get("element_types", [])
+            code = first_type_attrs.get("code", []) + tail_type_list_attrs.get("code", [])
             return {"element_types": element_types, "code": code}
 
         # --- Function Structure ---
-        elif (
-            production_rule_str
-            == "FunctionDeclaration -> FunctionHeader StatementBlock"
-        ):
+        elif production_rule_str == "FunctionDeclaration -> FunctionHeader StatementBlock":
             func_header_attrs = get_child_attrs(0)
             stmt_block_attrs = get_child_attrs(1)
 
-            combined_code = func_header_attrs.get("code", []) + stmt_block_attrs.get(
-                "code", []
-            )
+            combined_code = func_header_attrs.get("code", []) + stmt_block_attrs.get("code", [])
 
             # 从 process_function_body_end 获取 FUNC_END 四元式并合并
             # 假设 func_header_attrs['name'] 总是存在且正确
-            end_attrs = self.process_function_body_end(
-                func_header_attrs.get("name"), approx_loc
-            )
+            end_attrs = self.process_function_body_end(func_header_attrs.get("name"), approx_loc)
             combined_code.extend(end_attrs.get("code", []))
 
             return {
@@ -1757,16 +1494,11 @@ class SemanticAnalyzer:
                 "code": combined_code,
             }
 
-        elif (
-            production_rule_str
-            == "FunctionDeclaration -> FunctionHeader BlockExpression"
-        ):
+        elif production_rule_str == "FunctionDeclaration -> FunctionHeader BlockExpression":
             func_header_attrs = get_child_attrs(0)
             block_expr_attrs = get_child_attrs(1)
 
-            combined_code = func_header_attrs.get("code", []) + block_expr_attrs.get(
-                "code", []
-            )
+            combined_code = func_header_attrs.get("code", []) + block_expr_attrs.get("code", [])
 
             func_return_type = func_header_attrs.get("return_type", "void")
             block_expr_type = block_expr_attrs.get("type", "void")
@@ -1776,24 +1508,16 @@ class SemanticAnalyzer:
             if func_return_type != "void":
                 if block_expr_type == "void":
                     # 检查行号获取是否准确
-                    err_line = (
-                        block_expr_attrs.get("token_obj", {})
-                        .get("loc", {})
-                        .get("row", approx_loc)
-                    )
+                    err_line = block_expr_attrs.get("token_obj", {}).get("loc", {}).get("row", approx_loc)
                     raise SemanticError(
                         f"Function '{func_header_attrs.get('name')}' expects a return value of type {self.get_type_name(func_return_type)}, but block expression returns void.",
                         err_line,
                     )
-                self.check_type_compatibility(
-                    func_return_type, block_expr_type, approx_loc
-                )
+                self.check_type_compatibility(func_return_type, block_expr_type, approx_loc)
                 # 创建 RETURN_VAL 四元式 (之前是 add_quad 后 pop，现在直接创建)
                 temp_return_quad = Quadruple("RETURN_VAL", block_expr_place, None, None)
                 combined_code.append(temp_return_quad)
-            elif (
-                block_expr_type != "void" and block_expr_place is not None
-            ):  # 如果函数返回void，但块表达式有值
+            elif block_expr_type != "void" and block_expr_place is not None:  # 如果函数返回void，但块表达式有值
                 # Rust 中这种情况是允许的，值会被丢弃。可以考虑添加一个 "DROP" 指令或无操作。
                 # 对于简单的四元式生成，可以不生成额外指令。
                 pass
@@ -1812,10 +1536,7 @@ class SemanticAnalyzer:
                 "code": combined_code,
             }
 
-        elif (
-            production_rule_str
-            == "FunctionHeader -> FN IDENTIFIER LPAREN ParameterList RPAREN"
-        ):
+        elif production_rule_str == "FunctionHeader -> FN IDENTIFIER LPAREN ParameterList RPAREN":
             id_token = get_token_obj_from_child(1)
             param_list_cont_attrs = get_child_attrs(3)
             # process_function_declaration_header 返回的字典应包含 'code' (内含 FUNC_BEGIN)
@@ -1825,10 +1546,7 @@ class SemanticAnalyzer:
                 "void",
                 approx_loc,
             )
-        elif (
-            production_rule_str
-            == "FunctionHeader -> FN IDENTIFIER LPAREN ParameterList RPAREN ARROW Type"
-        ):
+        elif production_rule_str == "FunctionHeader -> FN IDENTIFIER LPAREN ParameterList RPAREN ARROW Type":
             id_token = get_token_obj_from_child(1)
             param_list_cont_attrs = get_child_attrs(3)
             return_type_attrs = get_child_attrs(6)
@@ -1850,12 +1568,8 @@ class SemanticAnalyzer:
         elif production_rule_str == "ParameterList -> Parameter COMMA ParameterList":
             param_attrs = get_child_attrs(0)
             tail_list_attrs = get_child_attrs(2)
-            params = ([param_attrs] if param_attrs else []) + tail_list_attrs.get(
-                "params", []
-            )
-            code = (
-                param_attrs.get("code", []) if param_attrs else []
-            ) + tail_list_attrs.get("code", [])
+            params = ([param_attrs] if param_attrs else []) + tail_list_attrs.get("params", [])
+            code = (param_attrs.get("code", []) if param_attrs else []) + tail_list_attrs.get("code", [])
             return {"params": params, "code": code}
 
         elif production_rule_str == "Parameter -> VariableDeclarationInner COLON Type":
@@ -1863,9 +1577,7 @@ class SemanticAnalyzer:
             type_attrs = get_child_attrs(2)
             # 这个方法应该返回一个包含参数完整信息的字典，以及可能的代码
             # 假设 VariableDeclarationInner 和 Type 本身不产生独立执行的代码，code 主要来自更复杂的类型
-            combined_code = var_decl_inner_attrs.get("code", []) + type_attrs.get(
-                "code", []
-            )
+            combined_code = var_decl_inner_attrs.get("code", []) + type_attrs.get("code", [])
             return {
                 "name": var_decl_inner_attrs.get("name"),
                 "is_mutable": var_decl_inner_attrs.get("is_mutable", False),
@@ -1885,9 +1597,7 @@ class SemanticAnalyzer:
         elif production_rule_str == "StatementList -> Statement StatementList":
             stmt_attrs = get_child_attrs(0)
             stmt_list_tail_attrs = get_child_attrs(1)
-            combined_code = stmt_attrs.get("code", []) + stmt_list_tail_attrs.get(
-                "code", []
-            )
+            combined_code = stmt_attrs.get("code", []) + stmt_list_tail_attrs.get("code", [])
             return {"code": combined_code}
 
         # --- Statements ---
@@ -1895,28 +1605,17 @@ class SemanticAnalyzer:
             return {"code": []}
         elif production_rule_str == "Statement -> ReturnStatement":
             return get_child_attrs(0)
-        elif (
-            production_rule_str
-            == "Statement -> LET VariableDeclarationInner COLON Type SEMICOLON"
-        ):
+        elif production_rule_str == "Statement -> LET VariableDeclarationInner COLON Type SEMICOLON":
             var_decl_inner_attrs = get_child_attrs(1)
             type_attrs = get_child_attrs(3)
             # process_variable_declaration 应返回包含 'code' 的属性
-            return self.process_variable_declaration(
-                var_decl_inner_attrs, type_attrs, approx_loc
-            )
-        elif (
-            production_rule_str == "Statement -> LET VariableDeclarationInner SEMICOLON"
-        ):
+            return self.process_variable_declaration(var_decl_inner_attrs, type_attrs, approx_loc)
+        elif production_rule_str == "Statement -> LET VariableDeclarationInner SEMICOLON":
             var_decl_inner_attrs = get_child_attrs(1)
-            return self.process_variable_declaration(
-                var_decl_inner_attrs, None, approx_loc
-            )
+            return self.process_variable_declaration(var_decl_inner_attrs, None, approx_loc)
         elif production_rule_str == "Statement -> AssignmentStatement":
             return get_child_attrs(0)
-        elif (
-            production_rule_str == "Statement -> VariableDeclarationAssignmentStatement"
-        ):
+        elif production_rule_str == "Statement -> VariableDeclarationAssignmentStatement":
             return get_child_attrs(0)  # 这个节点应该返回包含赋值四元式的 code
         elif production_rule_str == "Statement -> Expression SEMICOLON":
             expr_attrs = get_child_attrs(0)
@@ -1948,10 +1647,7 @@ class SemanticAnalyzer:
             return self.process_return_statement(expr_attrs, approx_loc)
 
         # --- AssignmentStatement ---
-        elif (
-            production_rule_str
-            == "AssignmentStatement -> VariableDeclarationInner ASSIGN Expression SEMICOLON"
-        ):
+        elif production_rule_str == "AssignmentStatement -> VariableDeclarationInner ASSIGN Expression SEMICOLON":
             var_decl_inner_attrs = get_child_attrs(0)
             expr_attrs = get_child_attrs(2)
             # 此处需要确保 var_decl_inner_attrs 能够被 process_assignment 正确用作左值
@@ -1967,25 +1663,16 @@ class SemanticAnalyzer:
                 "token_obj": var_decl_inner_attrs.get("token_obj"),
             }
             # process_assignment 应返回包含 'code' (ASSIGN四元式) 的属性
-            assign_attrs = self.process_assignment(
-                simulated_assignable_attrs, expr_attrs, approx_loc
-            )
+            assign_attrs = self.process_assignment(simulated_assignable_attrs, expr_attrs, approx_loc)
             # 合并来自 VariableDeclarationInner (如果有) 和 expr_attrs (如果有) 和 assign_attrs 的代码
             # 但通常前两者代码在 assign_attrs['code'] 中已由 process_assignment 合并
             return assign_attrs
 
-        elif (
-            production_rule_str
-            == "AssignmentStatement -> Assignable ASSIGN Expression SEMICOLON"
-        ):
-            assignable_attrs = get_child_attrs(
-                0
-            )  # Assignable 应包含其自身的 code (如数组/元组索引计算)
+        elif production_rule_str == "AssignmentStatement -> Assignable ASSIGN Expression SEMICOLON":
+            assignable_attrs = get_child_attrs(0)  # Assignable 应包含其自身的 code (如数组/元组索引计算)
             expr_attrs = get_child_attrs(2)  # Expression 应包含其自身的 code
             # process_assignment 返回的 'code' 应包含 Assignable, Expression 的 code, 以及新的 ASSIGN 四元式
-            return self.process_assignment(
-                assignable_attrs, expr_attrs, approx_loc
-            )
+            return self.process_assignment(assignable_attrs, expr_attrs, approx_loc)
 
         # --- VariableDeclarationAssignmentStatement ---
         elif (
@@ -1995,9 +1682,7 @@ class SemanticAnalyzer:
             var_decl_inner_attrs = get_child_attrs(1)
             expr_attrs = get_child_attrs(3)
             # process_variable_declaration_assignment 返回的字典应包含 'code' (内含 ASSIGN)
-            return self.process_variable_declaration_assignment(
-                var_decl_inner_attrs, None, expr_attrs, approx_loc
-            )
+            return self.process_variable_declaration_assignment(var_decl_inner_attrs, None, expr_attrs, approx_loc)
         elif (
             production_rule_str
             == "VariableDeclarationAssignmentStatement -> LET VariableDeclarationInner COLON Type ASSIGN Expression SEMICOLON"
@@ -2020,36 +1705,25 @@ class SemanticAnalyzer:
             return get_child_attrs(0)
 
         # --- Expressions (Operations) ---
-        elif (
-            production_rule_str
-            == "Expression -> Expression ComparisonOperator AdditionExpression"
-        ):
+        elif production_rule_str == "Expression -> Expression ComparisonOperator AdditionExpression":
             left_expr_attrs = get_child_attrs(0)
             comp_op_attrs = get_child_attrs(1)
             right_add_expr_attrs = get_child_attrs(2)
             op_token = comp_op_attrs.get("token_obj")
             # process_binary_op 返回的字典应包含 'code' (操作的四元式 + 子表达式的 code)
-            return self.process_binary_op(
-                op_token, left_expr_attrs, right_add_expr_attrs, approx_loc
-            )
-        elif (
-            production_rule_str == "AdditionExpression -> AdditionExpression AddOp Term"
-        ):
+            return self.process_binary_op(op_token, left_expr_attrs, right_add_expr_attrs, approx_loc)
+        elif production_rule_str == "AdditionExpression -> AdditionExpression AddOp Term":
             left_add_expr_attrs = get_child_attrs(0)
             add_op_attrs = get_child_attrs(1)
             right_term_attrs = get_child_attrs(2)
             op_token = add_op_attrs.get("token_obj")
-            return self.process_binary_op(
-                op_token, left_add_expr_attrs, right_term_attrs, approx_loc
-            )
+            return self.process_binary_op(op_token, left_add_expr_attrs, right_term_attrs, approx_loc)
         elif production_rule_str == "Term -> Term MulOp Factor":
             left_term_attrs = get_child_attrs(0)
             mul_op_attrs = get_child_attrs(1)
             right_factor_attrs = get_child_attrs(2)
             op_token = mul_op_attrs.get("token_obj")
-            return self.process_binary_op(
-                op_token, left_term_attrs, right_factor_attrs, approx_loc
-            )
+            return self.process_binary_op(op_token, left_term_attrs, right_factor_attrs, approx_loc)
 
         # --- Primary Expressions ---
         elif production_rule_str == "Primary -> INTEGER_CONSTANT":
@@ -2066,13 +1740,9 @@ class SemanticAnalyzer:
                 "code": [],
                 "token_obj": None,
             }  # 构造一个临时的0
-            num_attrs = self.process_element(
-                num_token, approx_loc
-            )  # 获取数字的属性
+            num_attrs = self.process_element(num_token, approx_loc)  # 获取数字的属性
             # process_binary_op 将合并 zero_attrs.code, num_attrs.code, 和 SUB 的代码
-            return self.process_binary_op(
-                minus_token, zero_attrs, num_attrs, approx_loc
-            )
+            return self.process_binary_op(minus_token, zero_attrs, num_attrs, approx_loc)
         elif production_rule_str == "Primary -> Assignable":
             assignable_attrs = get_child_attrs(0)
             # process_element 会处理将左值用作右值（可能需要LOAD）并返回 'code'
@@ -2084,37 +1754,23 @@ class SemanticAnalyzer:
             arg_list_cont_attrs = get_child_attrs(2)
             args_list = arg_list_cont_attrs.get("args", [])
             # process_function_call 返回的字典应包含 'code' (内含 PARAM 和 CALL 四元式 + 参数表达式的 code)
-            func_call_attrs = self.process_function_call(
-                id_token, args_list, approx_loc
-            )
+            func_call_attrs = self.process_function_call(id_token, args_list, approx_loc)
             # 参数列表本身也可能有代码（来自其内部表达式）
             # process_function_call 应该已经合并了参数的代码
             # 但如果 ArgumentList 自身作为非终结符有独立代码，需要在这里合并
             # 假设 process_function_call 已经处理了 args_list 中每个 arg 的 code
             # 并且 arg_list_cont_attrs['code'] 是 ArgumentList 规则自身结构产生的代码（通常不多）
-            final_code = arg_list_cont_attrs.get("code", []) + func_call_attrs.get(
-                "code", []
-            )
+            final_code = arg_list_cont_attrs.get("code", []) + func_call_attrs.get("code", [])
             func_call_attrs["code"] = final_code
             return func_call_attrs
 
-        elif (
-            production_rule_str == "Primary -> LBRACK ArrayElements RBRACK"
-        ):  # 数组字面量
-            array_elements_attrs = get_child_attrs(
-                1
-            )  # 应包含 'elements' 和这些 elements 的 'code'
+        elif production_rule_str == "Primary -> LBRACK ArrayElements RBRACK":  # 数组字面量
+            array_elements_attrs = get_child_attrs(1)  # 应包含 'elements' 和这些 elements 的 'code'
             # process_array_literal 返回的字典应包含 'code' (ARRAY_INIT, ARRAY_SET 等)
-            return self.process_array_literal(
-                array_elements_attrs.get("elements", []), None, approx_loc
-            )
-        elif (
-            production_rule_str == "Primary -> LPAREN TupleAssignmentInternal RPAREN"
-        ):  # 元组字面量
+            return self.process_array_literal(array_elements_attrs.get("elements", []), None, approx_loc)
+        elif production_rule_str == "Primary -> LPAREN TupleAssignmentInternal RPAREN":  # 元组字面量
             tuple_internal_attrs = get_child_attrs(1)
-            return self.process_tuple_literal(
-                tuple_internal_attrs.get("elements", []), None, approx_loc
-            )
+            return self.process_tuple_literal(tuple_internal_attrs.get("elements", []), None, approx_loc)
 
         # --- Operators (passing up token_obj) ---
         elif production_rule_str == "ComparisonOperator -> LT":
@@ -2206,9 +1862,7 @@ class SemanticAnalyzer:
         # --- Factor -> LBRACK ArrayElementsList RBRACK 对应于 ArrayElementsList 的处理
         elif production_rule_str == "Factor -> LBRACK ArrayElementsList RBRACK":
             array_elements_list_attrs = get_child_attrs(1)
-            return self.process_array_literal(
-                array_elements_list_attrs.get("elements", []), None, approx_loc
-            )
+            return self.process_array_literal(array_elements_list_attrs.get("elements", []), None, approx_loc)
 
         # --- ArrayElementsList 的规则
         elif production_rule_str == "ArrayElementsList -> epsilon":
@@ -2216,10 +1870,7 @@ class SemanticAnalyzer:
         elif production_rule_str == "ArrayElementsList -> Expression":
             expr_attrs = get_child_attrs(0)
             return {"elements": [expr_attrs], "code": expr_attrs.get("code", [])}
-        elif (
-            production_rule_str
-            == "ArrayElementsList -> Expression COMMA ArrayElementsList"
-        ):
+        elif production_rule_str == "ArrayElementsList -> Expression COMMA ArrayElementsList":
             expr_attrs = get_child_attrs(0)
             tail_list_attrs = get_child_attrs(2)
             elements = [expr_attrs] + tail_list_attrs.get("elements", [])
@@ -2227,26 +1878,18 @@ class SemanticAnalyzer:
             return {"elements": elements, "code": code}
 
         # --- Control Flow: If, Else, While, For, Loop ---
-        elif (
-            production_rule_str
-            == "IfStatement -> IF Expression StatementBlock ElsePart"
-        ):
+        elif production_rule_str == "IfStatement -> IF Expression StatementBlock ElsePart":
             cond_expr_attrs = get_child_attrs(1)
             true_block_attrs = get_child_attrs(2)
             else_part_attrs = get_child_attrs(3)  # ElsePart 自身也应传递 'code'
             # process_if_statement 应该负责合并所有这些部分的code并生成跳转指令
-            return self.process_if_statement(
-                cond_expr_attrs, true_block_attrs, else_part_attrs, approx_loc
-            )
+            return self.process_if_statement(cond_expr_attrs, true_block_attrs, else_part_attrs, approx_loc)
         elif production_rule_str == "ElsePart -> epsilon":
             return {"code": [], "is_empty": True}
         elif production_rule_str == "ElsePart -> ELSE StatementBlock":
             else_block_attrs = get_child_attrs(1)  # StatementBlock 包含其 code
             return {"code": else_block_attrs.get("code", []), "is_empty": False}
-        elif (
-            production_rule_str
-            == "ElsePart -> ELSE IF Expression StatementBlock ElsePart"
-        ):
+        elif production_rule_str == "ElsePart -> ELSE IF Expression StatementBlock ElsePart":
             # 这个结构由 process_if_statement 内部通过 else_part_attrs 的 'is_else_if' 标志递归处理
             # 这里返回一个结构体，供 process_if_statement 解析
             cond_expr_attrs = get_child_attrs(2)
@@ -2272,19 +1915,12 @@ class SemanticAnalyzer:
         #     return self.process_while_loop(
         #         cond_expr_attrs, body_block_attrs, approx_loc
         #     )
-        elif (
-            production_rule_str
-            == "ForStatement -> FOR VariableDeclarationInner IN IterableStructure StatementBlock"
-        ):
+        elif production_rule_str == "ForStatement -> FOR VariableDeclarationInner IN IterableStructure StatementBlock":
             loop_var_decl_attrs = get_child_attrs(1)
             iterable_attrs = get_child_attrs(3)
             body_block_attrs = get_child_attrs(4)
-            return self.process_for_loop(
-                loop_var_decl_attrs, iterable_attrs, body_block_attrs, approx_loc
-            )
-        elif (
-            production_rule_str == "LoopStatement -> LOOP StatementBlock"
-        ):  # 普通 loop 语句
+            return self.process_for_loop(loop_var_decl_attrs, iterable_attrs, body_block_attrs, approx_loc)
+        elif production_rule_str == "LoopStatement -> LOOP StatementBlock":  # 普通 loop 语句
             body_block_attrs = get_child_attrs(1)
             return self.process_loop_statement(body_block_attrs, approx_loc)
         ## 1..a+1
@@ -2327,15 +1963,10 @@ class SemanticAnalyzer:
             return get_child_attrs(0)
         elif production_rule_str == "Expression -> LoopExpression":
             return get_child_attrs(0)
-        elif (
-            production_rule_str == "LoopExpression -> LOOP StatementBlock"
-        ):  # loop 表达式
+        elif production_rule_str == "LoopExpression -> LOOP StatementBlock":  # loop 表达式
             body_block_attrs = get_child_attrs(1)
             return self.process_loop_expression(body_block_attrs, approx_loc)
-        elif (
-            production_rule_str
-            == "ConditionalExpression -> IF Expression BlockExpression ELSE BlockExpression"
-        ):
+        elif production_rule_str == "ConditionalExpression -> IF Expression BlockExpression ELSE BlockExpression":
             cond_expr_attrs = get_child_attrs(1)
             true_block_expr_attrs = get_child_attrs(2)
             false_block_expr_attrs = get_child_attrs(4)
@@ -2349,10 +1980,7 @@ class SemanticAnalyzer:
         # --- Tuple Literal Internals ---
         elif production_rule_str == "TupleAssignmentInternal -> epsilon":
             return {"elements": [], "code": []}
-        elif (
-            production_rule_str
-            == "TupleAssignmentInternal -> Expression COMMA TupleAssignmentList"
-        ):
+        elif production_rule_str == "TupleAssignmentInternal -> Expression COMMA TupleAssignmentList":
             first_expr_attrs = get_child_attrs(0)
             tuple_list_attrs = get_child_attrs(2)
             elements = [first_expr_attrs] + tuple_list_attrs.get("elements", [])
@@ -2369,10 +1997,7 @@ class SemanticAnalyzer:
         elif production_rule_str == "Factor -> MULT Factor":
             factor_to_dereference_attrs = get_child_attrs(1)
             return self.process_reference_op("*", factor_to_dereference_attrs, approx_loc)
-        elif (
-            production_rule_str
-            == "TupleAssignmentList -> Expression COMMA TupleAssignmentList"
-        ):
+        elif production_rule_str == "TupleAssignmentList -> Expression COMMA TupleAssignmentList":
             expr_attrs = get_child_attrs(0)
             tail_list_attrs = get_child_attrs(2)
             elements = [expr_attrs] + tail_list_attrs.get("elements", [])
@@ -2384,60 +2009,67 @@ class SemanticAnalyzer:
         elif production_rule_str == "WhileHeader -> WHILE Expression":
             while_token = get_token_obj_from_child(0)
             cond_expr_attrs = get_child_attrs(1)
-            
-            line_num = while_token['loc']['row'] if while_token and 'loc' in while_token else approx_loc
+
+            line_num = while_token["loc"]["row"] if while_token and "loc" in while_token else approx_loc
 
             loop_data_from_begin = self.process_while_loop_begin(line_num)
-            
+
             quads_for_condition = []
             quads_for_condition.extend(cond_expr_attrs.get("code", []))
-            
-            if cond_expr_attrs.get("type") not in ["bool", "i32"]: # 假设条件可以是 bool 或 i32
+
+            if cond_expr_attrs.get("type") not in ["bool", "i32"]:  # 假设条件可以是 bool 或 i32
                 raise SemanticError(
                     f"While condition must be bool or i32, found {self.get_type_name(cond_expr_attrs.get('type'))}.",
-                    line_num
+                    line_num,
                 )
-            
+
             self.add_quad("IF_FALSE", cond_expr_attrs.get("place"), result=loop_data_from_begin["end_label"])
             quads_for_condition.append(self.quadruples.pop())
-            
+
             all_header_quads = loop_data_from_begin.get("quads", []) + quads_for_condition
-            
-            return {
-                "quads": all_header_quads,
-                "loop_data_ref": loop_data_from_begin
-            }
+
+            return {"quads": all_header_quads, "loop_data_ref": loop_data_from_begin}
 
         elif production_rule_str == "WhileStatement -> WhileHeader StatementBlock WhileEpilogue":
-            header_attrs = get_child_attrs(0)    # 来自 WhileHeader 的归约结果
-            body_attrs = get_child_attrs(1)      # 来自 StatementBlock 的归约结果
+            header_attrs = get_child_attrs(0)  # 来自 WhileHeader 的归约结果
+            body_attrs = get_child_attrs(1)  # 来自 StatementBlock 的归约结果
             epilogue_attrs = get_child_attrs(2)  # 来自 WhileEpilogue 的归约结果
 
             all_quads = []
             all_quads.extend(header_attrs.get("quads", []))
             all_quads.extend(body_attrs.get("code", []))
             all_quads.extend(epilogue_attrs.get("quads", []))
-            
+
             return {"code": all_quads, "type": "void"}
 
         elif production_rule_str == "WhileEpilogue -> epsilon":
             if not self.loop_stack or self.loop_stack[-1]["type"] != "while":
-                raise SemanticError("Internal error: WhileEpilogue reached with invalid or missing 'while' context on loop_stack.", approx_loc)
-            
-            current_loop_ctx = self.loop_stack[-1] # 不要立即 pop！！！
+                raise SemanticError(
+                    "Internal error: WhileEpilogue reached with invalid or missing 'while' context on loop_stack.",
+                    approx_loc,
+                )
 
-            end_attrs = self.process_while_loop_end({"loop_ctx": current_loop_ctx, "start_label": current_loop_ctx["start_label"], "end_label": current_loop_ctx["end_label"]}, approx_loc)
-            
+            current_loop_ctx = self.loop_stack[-1]  # 不要立即 pop！！！
+
+            end_attrs = self.process_while_loop_end(
+                {
+                    "loop_ctx": current_loop_ctx,
+                    "start_label": current_loop_ctx["start_label"],
+                    "end_label": current_loop_ctx["end_label"],
+                },
+                approx_loc,
+            )
+
             return {"quads": end_attrs.get("quads", [])}
         elif production_rule_str == "LoopExprMarkerBegin -> LOOP":
             loop_token = get_token_obj_from_child(0)
-            line_num = loop_token['loc']['row'] if loop_token and 'loc' in loop_token else approx_loc
-            
+            line_num = loop_token["loc"]["row"] if loop_token and "loc" in loop_token else approx_loc
+
             # 调用 process_loop_begin，标记为表达式，它会压栈 loop_stack
             # 并返回其生成的四元式 (如 LABEL) 和 loop_ctx (包含标签等信息)
             attrs_from_begin = self.process_loop_begin(is_expression=True, line_num=line_num)
             return attrs_from_begin
-        
+
         elif production_rule_str == "LoopExpression -> LoopExprMarkerBegin StatementBlock LoopExprMarkerEnd":
             begin_attrs = get_child_attrs(0)
             body_attrs = get_child_attrs(1)
@@ -2448,26 +2080,29 @@ class SemanticAnalyzer:
             all_quads.extend(begin_attrs.get("quads", []))
             all_quads.extend(body_attrs.get("code", []))
             all_quads.extend(end_attrs.get("quads", []))
-            
-            return {
-                "type": end_attrs.get("type"),
-                "place": end_attrs.get("place"),
-                "code": all_quads
-            }
+
+            return {"type": end_attrs.get("type"), "place": end_attrs.get("place"), "code": all_quads}
 
         elif production_rule_str == "LoopExprMarkerEnd -> epsilon":
-            if not self.loop_stack or self.loop_stack[-1]["type"] != "loop" or not self.loop_stack[-1].get("is_expr_loop"):
-                raise SemanticError("Internal error: LoopExprMarkerEnd reached with invalid or missing 'loop expression' context on loop_stack.", approx_loc)
-            
-            loop_ctx_from_stack = self.loop_stack[-1] # 获取上下文
-            
+            if (
+                not self.loop_stack
+                or self.loop_stack[-1]["type"] != "loop"
+                or not self.loop_stack[-1].get("is_expr_loop")
+            ):
+                raise SemanticError(
+                    "Internal error: LoopExprMarkerEnd reached with invalid or missing 'loop expression' context on loop_stack.",
+                    approx_loc,
+                )
+
+            loop_ctx_from_stack = self.loop_stack[-1]  # 获取上下文
+
             attrs_from_end = self.process_loop_end({"loop_ctx": loop_ctx_from_stack}, approx_loc)
-            return attrs_from_end 
+            return attrs_from_end
 
         elif production_rule_str == "LoopStmtMarkerBegin -> LOOP":
             loop_token = get_token_obj_from_child(0)
-            line_num = loop_token['loc']['row'] if loop_token and 'loc' in loop_token else approx_loc
-            
+            line_num = loop_token["loc"]["row"] if loop_token and "loc" in loop_token else approx_loc
+
             attrs_from_begin = self.process_loop_begin(is_expression=False, line_num=line_num)
             return attrs_from_begin
 
@@ -2480,19 +2115,22 @@ class SemanticAnalyzer:
             all_quads.extend(begin_attrs.get("quads", []))
             all_quads.extend(body_attrs.get("code", []))
             all_quads.extend(end_attrs.get("quads", []))
-            
+
             return {"code": all_quads, "type": "void"}
 
         elif production_rule_str == "LoopStmtMarkerEnd -> epsilon":
             if not self.loop_stack or self.loop_stack[-1]["type"] != "loop" or self.loop_stack[-1].get("is_expr_loop"):
-                raise SemanticError("Internal error: LoopStmtMarkerEnd reached with invalid or missing 'loop statement' context on loop_stack.", approx_loc)
-            
+                raise SemanticError(
+                    "Internal error: LoopStmtMarkerEnd reached with invalid or missing 'loop statement' context on loop_stack.",
+                    approx_loc,
+                )
+
             loop_ctx_from_stack = self.loop_stack[-1]
-            
+
             attrs_from_end = self.process_loop_end({"loop_ctx": loop_ctx_from_stack}, approx_loc)
             return attrs_from_end
 
-        else: # NOT ALLOWED！！！
+        else:  # NOT ALLOWED！！！
             print(
                 f"警告: dispatch_semantic_action 中 '{production_rule_str}' (行 ~{approx_loc}) 未精确匹配，使用默认聚合/传递。"
             )
@@ -2507,11 +2145,7 @@ class SemanticAnalyzer:
                         first_significant_child_attrs = child_attr
 
             if first_significant_child_attrs:
-                passed_attrs = {
-                    k: v
-                    for k, v in first_significant_child_attrs.items()
-                    if k != "code"
-                }
+                passed_attrs = {k: v for k, v in first_significant_child_attrs.items() if k != "code"}
 
             passed_attrs["code"] = collected_code
 
@@ -2520,24 +2154,16 @@ class SemanticAnalyzer:
             parts = production_rule_str.split("->")
             if len(parts) == 2:
                 rhs_symbols_str_list = parts[1].strip().split(" ")
-                if (
-                    len(rhs_symbols_str_list) == 1
-                    and children_attrs
-                    and children_attrs[0] is not None
-                ):
+                if len(rhs_symbols_str_list) == 1 and children_attrs and children_attrs[0] is not None:
                     is_simple_chain = True
 
             if is_simple_chain:
                 # 对于 A -> B，直接返回 B 的所有属性
-                print(
-                    f"调试: 应用默认链式规则传递 '{production_rule_str}' -> child 0 attrs: {children_attrs[0]}"
-                )
+                print(f"调试: 应用默认链式规则传递 '{production_rule_str}' -> child 0 attrs: {children_attrs[0]}")
                 return children_attrs[0]
             else:
                 # 对于其他未处理规则，至少返回收集到的代码
-                print(
-                    f"警告: '{production_rule_str}' 未显式处理，仅聚合代码。返回: {passed_attrs}"
-                )
+                print(f"警告: '{production_rule_str}' 未显式处理，仅聚合代码。返回: {passed_attrs}")
                 return {"code": collected_code}  # 或者 passed_attrs 如果你认为它更合适
 
     def get_symbol_table_string_for_debug(self):
@@ -2560,9 +2186,7 @@ class SemanticAnalyzer:
         return "\n".join(output)
 
     # 3.1 if整体处理
-    def process_if_statement(
-        self, condition_attrs, true_block_attrs, else_block_attrs=None, line_num=0
-    ):
+    def process_if_statement(self, condition_attrs, true_block_attrs, else_block_attrs=None, line_num=0):
         """
         处理 if 语句（或 if-else 语句），用于语义分析器中的四元式生成。
 
@@ -2591,9 +2215,7 @@ class SemanticAnalyzer:
         # 4. 处理 elseif/else 分支
         if else_block_attrs:
             # 添加 elseif 或 else 的 LABEL
-            if_else_data = self.process_if_true_block_end(
-                if_data, is_if_expression=False, line_num=line_num
-            )
+            if_else_data = self.process_if_true_block_end(if_data, is_if_expression=False, line_num=line_num)
             self.process_else_block_begin(if_else_data, line_num)
             quads.append(self.quadruples.pop())
 
@@ -2666,9 +2288,7 @@ class SemanticAnalyzer:
     #     }
 
     # 5.2 for循环整体处理，无process_for_loop属性
-    def process_for_loop(
-        self, loop_var_decl_attrs, iterable_attrs, body_block_attrs, line_num
-    ):
+    def process_for_loop(self, loop_var_decl_attrs, iterable_attrs, body_block_attrs, line_num):
         quads = []
 
         # 提取循环变量名，例如 i
@@ -2679,9 +2299,7 @@ class SemanticAnalyzer:
         range_end_expr = iterable_attrs["right"]
 
         # 开始 for 循环（初始化 start/end/iter_temp 和跳转逻辑）
-        begin_result = self.process_for_loop_begin(
-            loop_var_name, range_start_expr, range_end_expr, line_num
-        )
+        begin_result = self.process_for_loop_begin(loop_var_name, range_start_expr, range_end_expr, line_num)
         quads.extend(begin_result["quads"])
 
         # 插入循环体 block 的四元式
@@ -2692,7 +2310,7 @@ class SemanticAnalyzer:
         quads.extend(end_result["quads"])
 
         return {"code": quads}
-    
+
     # 7.3 条件表达式整体处理
     def process_conditional_expression(self, cond_expr_attrs, true_block_attrs, false_block_attrs, line_num):
         quads = []
@@ -2739,4 +2357,3 @@ class SemanticAnalyzer:
             "place": result_temp,
             "code": quads,
         }
-

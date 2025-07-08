@@ -114,8 +114,8 @@ async def api_parse(request: Request):
         }
 
     quadruples = result.get("quadruples", [])
-    symbol_tables = parser.semantic_analyzer.symbol_tables
-    mips_code = codegen.generate(quadruples, symbol_tables)
+    global_scope = parser.semantic_analyzer.symbol_tables[0]
+    mips_code = codegen.generate(quadruples, global_scope)
 
     return {
         "tree": result["syntax_tree"],

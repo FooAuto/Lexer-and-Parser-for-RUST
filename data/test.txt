@@ -29,15 +29,18 @@ fn program_6_1__2() {
 }
 */
 
-fn program_6_2__1() {
+fn program_6_2__1() -> i32 {
 	let mut a:i32=1;
 	let mut b:&mut i32=&mut a;
 	let mut c:i32=*b;
+    return c;
 }
-fn program_6_2__2() {
+
+fn program_6_2__2() -> i32 {
 	let a:i32=1;
 	let b:& i32=&a;
 	let c:i32=*b;
+    return c;
 }
 
 fn program_8_1__1() {
@@ -63,9 +66,10 @@ fn program_8_1__4() {
 }
 */
 
-fn program_8_2__1(mut a:[i32;3]) {
+fn program_8_2__1(mut a:[i32;3])->i32{
 	let mut b:i32=a[0];
-	a[0]=1;
+	a[0]=6;
+    return b;
 }
 
 /*
@@ -98,6 +102,6 @@ fn main() {
   program_8_1__1();
   let mut e:[i32;3];
   e=[1,2,3];
-  program_8_2__1(e);
+  a = program_8_2__1(e);
   
 }
