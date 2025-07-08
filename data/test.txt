@@ -1,21 +1,13 @@
 // 在这里输入 Rust-like 代码
-fn test1(mut a:i32) -> i32 {
-  while (a > 0) {
-    a = a - 1;
-  }
-  let b = 114514;
-  return b;
+fn test2(mut a:i32) -> i32 {
+	if a>0 {
+		return a+1;
+	} else if a<0 {
+		return a-1;
+	} else {
+		return 0;
+	}
 }
-
- fn test2(mut a:i32) -> i32 {
- 	if a>0 {
- 		return a+1;
- 	} else if a<0 {
- 		return a-1;
- 	} else {
- 		return 0;
- 	}
- }
  
 fn program_6_1__1() {
 	let a:i32=1;
@@ -41,6 +33,12 @@ fn program_6_2__2() -> i32 {
 	let b:& i32=&a;
 	let c:i32=*b;
     return c;
+}
+
+fn program_6_2__6() {
+	let mut a:i32=1;
+	let b=&a;
+	let c=&a;
 }
 
 fn program_8_1__1() {
@@ -90,15 +88,14 @@ fn program_8_2__4() {
 */
 
 fn main() {
-  let mut a:i32 = 6;
-  let mut b;
-  let mut c = test1(a);
+  let mut a:i32 = 6; // 2.3
   let mut d:i32;
   d = 1+1*4 +5 /4;
-  b = test2(d);
+  let b = test2(d);
   program_6_1__1();
   program_6_2__1();
   program_6_2__2();
+  program_6_2__6();
   program_8_1__1();
   let mut e:[i32;3];
   e=[1,2,3];

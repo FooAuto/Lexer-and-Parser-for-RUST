@@ -158,7 +158,12 @@ class CodeGenerator:
                 self.param_count += 1
 
             elif op == "ARRAY_INIT":
-                self._get_var_stack_offset(arg1)
+                array_name = arg1
+                num_elements = arg2
+                if array_name not in self.var_map:
+                    size = num_elements * 4
+                    self.current_func_stack_offset -= size
+                    self.var_map[array_name] = self.current_func_stack_offset
 
             elif op == "ARRAY_SET":
                 array_name = arg1
@@ -210,6 +215,28 @@ class CodeGenerator:
                 self._release_reg(reg2)
                 self._release_reg(result_reg)
 
+            elif op in ("GT", "GE", "LT", "LE", "EQ", "NE"):
+                reg1, reg2, result_reg = self._get_reg(), self._get_reg(), self._get_reg()
+                self._load_value_to_reg(arg1, reg1)
+                self._load_value_to_reg(arg2, reg2)
+
+                op_map = {
+                    "GT": "sgt",  # set on greater than
+                    "GE": "sge",  # set on greater than or equal
+                    "LT": "slt",  # set on less than
+                    "LE": "sle",  # set on less than or equal
+                    "EQ": "seq",  # set on equal
+                    "NE": "sne",  # set on not equal
+                }
+                self.mips_code.append(f"    {op_map[op]} {result_reg}, {reg1}, {reg2}")
+
+                result_addr_offset = self._get_var_stack_offset(result)
+                self.mips_code.append(f"    sw {result_reg}, {result_addr_offset}($fp)")
+
+                self._release_reg(reg1)
+                self._release_reg(reg2)
+                self._release_reg(result_reg)
+
             elif op == "LABEL":
                 self.mips_code.append(f"{result}:")
 
@@ -238,6 +265,40 @@ class CodeGenerator:
                 self.mips_code.append("    lw $fp, 0($sp)")
                 self.mips_code.append("    addiu $sp, $sp, 8")
                 self.mips_code.append("    jr $ra")
+
+            elif op == "REF":  # result = &arg1
+                reg_addr = self._get_reg()
+                self._load_address_to_reg(arg1, reg_addr)
+
+                result_addr_offset = self._get_var_stack_offset(result)
+                self.mips_code.append(f"    sw {reg_addr}, {result_addr_offset}($fp)")
+
+                self._release_reg(reg_addr)
+
+            elif op == "DEREF_LOAD":  # result = *arg1
+                reg_ptr = self._get_reg()
+                reg_val = self._get_reg()
+
+                self._load_value_to_reg(arg1, reg_ptr)  # 加载指针（地址）
+                self.mips_code.append(f"    lw {reg_val}, 0({reg_ptr})")  # 从该地址加载值
+
+                result_addr_offset = self._get_var_stack_offset(result)
+                self.mips_code.append(f"    sw {reg_val}, {result_addr_offset}($fp)")
+
+                self._release_reg(reg_ptr)
+                self._release_reg(reg_val)
+
+            elif op == "DEREF_STORE":  # *arg1 = result
+                reg_ptr = self._get_reg()
+                reg_val = self._get_reg()
+
+                self._load_value_to_reg(arg1, reg_ptr)  # 加载指针（地址）
+                self._load_value_to_reg(result, reg_val)  # 加载要存储的值
+
+                self.mips_code.append(f"    sw {reg_val}, 0({reg_ptr})")  # 在指针指向的地址存储值
+
+                self._release_reg(reg_ptr)
+                self._release_reg(reg_val)
 
     def generate(self, quadruples, global_symbol_table):
         functions = {}
