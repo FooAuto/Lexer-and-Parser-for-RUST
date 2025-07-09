@@ -1,4 +1,11 @@
 // 在这里输入 Rust-like 代码
+fn test1(mut a:i32) -> i32{
+  while a > 0 {
+    a = a - 1;
+  }
+  return a;
+}
+
 fn test2(mut a:i32) -> i32 {
 	if a>0 {
 		return a+1;
@@ -89,6 +96,7 @@ fn program_8_2__4() {
 
 fn main() {
   let mut a:i32 = 6; // 2.3
+  a = test1(a);
   let mut d:i32;
   d = 1+1*4 +5 /4;
   let b = test2(d);
