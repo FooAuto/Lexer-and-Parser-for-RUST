@@ -606,6 +606,15 @@ class SemanticAnalyzer:
                     line_num,
                 )
 
+            array_length = base_type[2]
+            index_place = index_attrs.get("place")
+
+            if isinstance(index_place, int):
+                if not (0 <= index_place < array_length):
+                    raise SemanticError(
+                        f"Index out of bounds: the length is {array_length} but the index is {index_place}.", line_num
+                    )
+
             element_type = base_type[1]
 
             return {
@@ -1225,8 +1234,15 @@ class SemanticAnalyzer:
             raise SemanticError(f"Cannot index non-array type '{self.get_type_name(array_type)}'.", line_num)
 
         element_type = array_type[1]
-        result_place = self._new_temp()
+        array_length = array_type[2]
 
+        if isinstance(index_place, int):
+            if not (0 <= index_place < array_length):
+                raise SemanticError(
+                    f"Index out of bounds: the length is {array_length} but the index is {index_place}.", line_num
+                )
+
+        result_place = self._new_temp()
         self.add_quad("ARRAY_LOAD", array_place, index_place, result_place)
         quads.append(self.quadruples.pop())
 
