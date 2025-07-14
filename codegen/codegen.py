@@ -45,14 +45,16 @@ class CodeGenerator:
         entry = self.current_symbol_map.get(var_name)
         offset = self._get_var_stack_offset(var_name)
 
-        is_array_param = (
+        is_aggregate_param = (
             entry
             and entry.sym_type == SymbolType.PARAMETER
-            and isinstance(entry.data_type, list)
-            and entry.data_type[0] == "["
+            and (
+                (isinstance(entry.data_type, list) and entry.data_type[0] == "[")  # 数组
+                or isinstance(entry.data_type, tuple)  # 元组
+            )
         )
 
-        if is_array_param:
+        if is_aggregate_param:
             self.mips_code.append(f"    lw {reg}, {offset}($fp)")
         else:
             self.mips_code.append(f"    addiu {reg}, $fp, {offset}")
@@ -143,15 +145,69 @@ class CodeGenerator:
                 self._release_reg(reg_index)
                 self._release_reg(reg_value)
 
+            elif op == "TUPLE_INIT":
+                tuple_name = arg1
+                num_elements = arg2
+                if tuple_name not in self.var_map:
+                    size = num_elements * 4
+                    self.current_func_stack_offset -= size
+                    self.var_map[tuple_name] = self.current_func_stack_offset
+
+            elif op == "TUPLE_SET":
+                tuple_name = arg1
+                index_val = arg2
+                value_to_store = result
+                tuple_base_addr_offset = self._get_var_stack_offset(tuple_name)
+                element_offset_in_bytes = index_val * 4
+                final_offset_on_stack = tuple_base_addr_offset + element_offset_in_bytes
+                reg_val = self._get_reg()
+                self._load_value_to_reg(value_to_store, reg_val)
+                self.mips_code.append(f"    sw {reg_val}, {final_offset_on_stack}($fp)")
+                self._release_reg(reg_val)
+
+            elif op == "TUPLE_LOAD":
+                reg_base_addr = self._get_reg()
+                dest_reg = self._get_reg()
+
+                self._load_address_to_reg(arg1, reg_base_addr)
+                element_offset = arg2 * 4
+
+                self.mips_code.append(f"    lw {dest_reg}, {element_offset}({reg_base_addr})")
+
+                dest_addr_on_stack = self._get_var_stack_offset(result)
+                self.mips_code.append(f"    sw {dest_reg}, {dest_addr_on_stack}($fp)")
+
+                self._release_reg(reg_base_addr)
+                self._release_reg(dest_reg)
+
+            elif op == "TUPLE_STORE":
+                reg_base_addr = self._get_reg()
+                reg_value = self._get_reg()
+
+                self._load_address_to_reg(arg1, reg_base_addr)
+                self._load_value_to_reg(result, reg_value)
+                element_offset = arg2 * 4
+
+                self.mips_code.append(f"    sw {reg_value}, {element_offset}({reg_base_addr})")
+
+                self._release_reg(reg_base_addr)
+                self._release_reg(reg_value)
+
             elif op == "PARAM":
                 arg_entry = self.current_symbol_map.get(arg1)
-                is_array = arg_entry and isinstance(arg_entry.data_type, list) and arg_entry.data_type[0] == "["
+
+                is_aggregate = arg_entry and (
+                    (isinstance(arg_entry.data_type, list) and arg_entry.data_type[0] == "[")  # 是数组
+                    or isinstance(arg_entry.data_type, tuple)  # 元组
+                )
 
                 if self.param_count < 4:
                     arg_reg = f"$a{self.param_count}"
-                    if is_array:
+                    if is_aggregate:
+                        # 对于聚合类型，总是传递其基地址
                         self._load_address_to_reg(arg1, arg_reg)
                     else:
+                        # 对于标量类型，传递其值
                         self._load_value_to_reg(arg1, arg_reg)
                 else:
                     raise NotImplementedError("Stack-based parameter passing beyond 4 arguments not implemented.")
@@ -179,27 +235,29 @@ class CodeGenerator:
 
             elif op == "ASSIGN":
                 dest_entry = self.current_symbol_map.get(result)
-                is_array_assign = (
-                    dest_entry and isinstance(dest_entry.data_type, list) and dest_entry.data_type[0] == "["
+                is_aggregate_assign = dest_entry and (
+                    (isinstance(dest_entry.data_type, list) and dest_entry.data_type[0] == "[")  # 数组
+                    or isinstance(dest_entry.data_type, tuple)  # 元组
                 )
-                if is_array_assign:
-                    array_len = dest_entry.data_type[2]
+
+                if is_aggregate_assign:
+                    # 确定要拷贝的长度
+                    if isinstance(dest_entry.data_type, tuple):
+                        aggregate_len = len(dest_entry.data_type)
+                    else:  # 数组
+                        aggregate_len = dest_entry.data_type[2]
+
+                    # 执行拷贝循环
                     reg_src, reg_dest, reg_tmp = self._get_reg(), self._get_reg(), self._get_reg()
                     self._load_address_to_reg(arg1, reg_src)
                     self._load_address_to_reg(result, reg_dest)
-                    for i in range(array_len):
+                    for i in range(aggregate_len):
                         offset = i * 4
                         self.mips_code.append(f"    lw {reg_tmp}, {offset}({reg_src})")
                         self.mips_code.append(f"    sw {reg_tmp}, {offset}({reg_dest})")
                     self._release_reg(reg_src)
                     self._release_reg(reg_dest)
                     self._release_reg(reg_tmp)
-                else:
-                    reg1 = self._get_reg()
-                    self._load_value_to_reg(arg1, reg1)
-                    result_addr_offset = self._get_var_stack_offset(result)
-                    self.mips_code.append(f"    sw {reg1}, {result_addr_offset}($fp)")
-                    self._release_reg(reg1)
 
             elif op in ("ADD", "SUB", "MUL", "DIV"):
                 reg1, reg2, result_reg = self._get_reg(), self._get_reg(), self._get_reg()

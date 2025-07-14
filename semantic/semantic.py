@@ -429,14 +429,19 @@ class SemanticAnalyzer:
         source_place = expr_attrs["place"]
         target_type = assignable_attrs["type"]
 
-        if assignable_attrs.get("lvalue_base"):
+        if assignable_attrs.get("lvalue_base"):  # 这是一个左值
             if not assignable_attrs.get("is_mutable"):
-                raise SemanticError(
-                    f"Cannot assign to element of immutable array '{assignable_attrs['lvalue_base']}'.", line_num
-                )
+                raise SemanticError(f"Cannot assign to element of immutable collection.", line_num)
+
             base_name = assignable_attrs["lvalue_base"]
             index_place = assignable_attrs["lvalue_index"]
-            self.add_quad("ARRAY_STORE", base_name, index_place, source_place)
+            source_place = expr_attrs["place"]
+
+            if assignable_attrs.get("is_tuple_access"):
+                self.add_quad("TUPLE_STORE", base_name, index_place, source_place)
+            else:  # 否则就是数组
+                self.add_quad("ARRAY_STORE", base_name, index_place, source_place)
+
             quads.append(self.quadruples.pop())
 
         elif assignable_attrs.get("is_lvalue_address_in_place"):
@@ -548,7 +553,12 @@ class SemanticAnalyzer:
 
                 if attrs.get("lvalue_base"):  # It's an array element lvalue: a[i]
                     temp_val = self._new_temp()
-                    self.add_quad("ARRAY_LOAD", attrs["lvalue_base"], attrs["lvalue_index"], temp_val)
+                    if attrs.get("is_tuple_access"):
+                        # 如果是元组访问，生成 TUPLE_LOAD
+                        self.add_quad("TUPLE_LOAD", attrs["lvalue_base"], attrs["lvalue_index"], temp_val)
+                    else:  # 否则就是数组访问
+                        self.add_quad("ARRAY_LOAD", attrs["lvalue_base"], attrs["lvalue_index"], temp_val)
+
                     quads.append(self.quadruples.pop())
                     attrs["place"] = temp_val
                     return attrs
@@ -628,8 +638,42 @@ class SemanticAnalyzer:
             }
 
         elif stype == "tuple_access":
-            raise NotImplementedError("Tuple assignment not fully implemented in this version.")
+            base_attrs = structure["base"]
+            index_token = structure["index_token"]
+            quads.extend(base_attrs.get("code", []))
 
+            base_type = base_attrs["type"]
+            base_is_mut = base_attrs.get("is_mutable", False)
+            base_place = base_attrs["place"]
+
+            if not isinstance(base_type, tuple):
+                raise SemanticError(
+                    f"Attempted to access field on non-tuple type '{self.get_type_name(base_type)}'.", line_num
+                )
+
+            try:
+                index_val = int(index_token["content"])
+            except ValueError:
+                raise SemanticError(f"Tuple index must be a non-negative integer literal.", line_num)
+
+            # 静态边界检查
+            if not (0 <= index_val < len(base_type)):
+                raise SemanticError(
+                    f"Tuple index out of bounds: the length is {len(base_type)} but the index is {index_val}.", line_num
+                )
+
+            element_type = base_type[index_val]
+
+            return {
+                "name": base_attrs.get("name", "tuple_element"),
+                "type": element_type,
+                "is_lvalue": True,
+                "is_mutable": base_is_mut,
+                "code": quads,
+                "lvalue_base": base_place,
+                "lvalue_index": index_val,
+                "is_tuple_access": True,
+            }
         raise SemanticError(f"Unknown assignable element structure: {stype}", line_num)
 
     # Rule 3.2: Arithmetic and Comparison ops
