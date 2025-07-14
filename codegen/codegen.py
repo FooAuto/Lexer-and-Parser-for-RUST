@@ -236,18 +236,17 @@ class CodeGenerator:
             elif op == "ASSIGN":
                 dest_entry = self.current_symbol_map.get(result)
                 is_aggregate_assign = dest_entry and (
-                    (isinstance(dest_entry.data_type, list) and dest_entry.data_type[0] == "[")  # 数组
-                    or isinstance(dest_entry.data_type, tuple)  # 元组
+                    (isinstance(dest_entry.data_type, list) and dest_entry.data_type[0] == "[")
+                    or isinstance(dest_entry.data_type, tuple)
                 )
 
                 if is_aggregate_assign:
-                    # 确定要拷贝的长度
+                    # 聚合类型（数组/元组）的整体赋值
                     if isinstance(dest_entry.data_type, tuple):
                         aggregate_len = len(dest_entry.data_type)
-                    else:  # 数组
+                    else:
                         aggregate_len = dest_entry.data_type[2]
 
-                    # 执行拷贝循环
                     reg_src, reg_dest, reg_tmp = self._get_reg(), self._get_reg(), self._get_reg()
                     self._load_address_to_reg(arg1, reg_src)
                     self._load_address_to_reg(result, reg_dest)
@@ -258,6 +257,13 @@ class CodeGenerator:
                     self._release_reg(reg_src)
                     self._release_reg(reg_dest)
                     self._release_reg(reg_tmp)
+                else:
+                    # 普通变量赋值
+                    reg1 = self._get_reg()
+                    self._load_value_to_reg(arg1, reg1)
+                    result_addr_offset = self._get_var_stack_offset(result)
+                    self.mips_code.append(f"    sw {reg1}, {result_addr_offset}($fp)")
+                    self._release_reg(reg1)
 
             elif op in ("ADD", "SUB", "MUL", "DIV"):
                 reg1, reg2, result_reg = self._get_reg(), self._get_reg(), self._get_reg()
@@ -298,13 +304,13 @@ class CodeGenerator:
             elif op == "LABEL":
                 self.mips_code.append(f"{result}:")
 
-            elif op == "JUMP":
+            elif op == "GOTO":
                 self.mips_code.append(f"    j {result}")
 
-            elif op == "IF_FALSE":
+            elif op == "IF_GOTO":
                 reg1 = self._get_reg()
                 self._load_value_to_reg(arg1, reg1)
-                self.mips_code.append(f"    beqz {reg1}, {result}")
+                self.mips_code.append(f"    bnez {reg1}, {result}")
                 self._release_reg(reg1)
 
             elif op == "CALL":

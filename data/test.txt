@@ -110,3 +110,37 @@ fn main() {
   a = program_8_2__1(e);
   
 }
+
+fn program_7_1(mut x:i32,mut y:i32) {
+	let mut z={
+		let mut t=x*x+x;
+		t=t+x*y;
+		t
+	};
+}
+ 
+fn program_7_2(mut x:i32,mut y:i32) -> i32 {
+	let mut t=x*x+x;
+	t=t+x*y;
+	t
+}
+
+fn program_7__3(mut a:i32)->i32{
+	let mut b=if a>0 {
+    	1
+    }
+    else {
+    	0
+    };
+    return b;
+}
+
+fn main(){
+	let mut a = 7;
+	let mut b = 8;
+    program_7_1(a,b);
+    program_7_2(a,b);
+    let b = program_7__3(a);
+}
+
+
