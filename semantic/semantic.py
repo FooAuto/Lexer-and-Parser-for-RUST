@@ -48,6 +48,8 @@ class SymbolTableEntry:
         # extra_info for REFERENCE: {'target_type': 'i32', 'is_mutable_ref': True/False}
         self.line_declared = -1  # Placeholder, set this during declaration
         self.active_borrows = {"mutable": 0, "immutable": 0}  # For borrow checking
+        # active_borrows 记录了当前活跃的借用数量
+        self.active_borrows = {"mutable": 0, "immutable": 0}
 
 
 class SemanticError(Exception):
@@ -1155,19 +1157,34 @@ class SemanticAnalyzer:
 
         elif op_type == "&" or op_type == "&mut":
             if not target_attrs.get("is_lvalue"):
-                raise SemanticError(f"Cannot take reference of non-lvalue.", line_num)
+                raise SemanticError("Cannot take reference of non-lvalue.", line_num)
 
             target_name = target_attrs.get("name")
-            target_is_mutable = target_attrs.get("is_mutable", False)
+            target_entry = self.lookup_symbol(target_name, line_num)
 
-            if not target_attrs.get("is_temp_lvalue") and target_name:
-                entry = self.lookup_symbol(target_name, line_num)
-                target_is_mutable = entry.is_mutable
+            if op_type == "&mut":
+                # 当创建可变引用时，不能存在任何其他活跃的引用
+                if target_entry.active_borrows["mutable"] > 0 or target_entry.active_borrows["immutable"] > 0:
+                    raise SemanticError(
+                        f"Cannot borrow '{target_name}' as mutable because it is already borrowed.", line_num
+                    )
 
-            if op_type == "&mut" and not target_is_mutable:
-                raise SemanticError(
-                    f"Cannot take mutable reference of immutable '{target_attrs.get('name', 'value')}'.", line_num
-                )
+                # 可变引用只能从可变变量创建
+                if not target_entry.is_mutable:
+                    raise SemanticError(f"Cannot borrow immutable variable '{target_name}' as mutable.", line_num)
+
+                # 记录这次可变借用
+                target_entry.active_borrows["mutable"] += 1
+
+            elif op_type == "&":
+                # 当创建不可变引用时，不能存在任何活跃的可变引用
+                if target_entry.active_borrows["mutable"] > 0:
+                    raise SemanticError(
+                        f"Cannot borrow '{target_name}' as immutable because it is also borrowed as mutable.", line_num
+                    )
+
+                # 记录这次不可变借用
+                target_entry.active_borrows["immutable"] += 1
 
             result_type = [op_type, target_type]
             self.add_quad("REF", target_place, result=result_place)
