@@ -37,6 +37,8 @@ class CodeGenerator:
     def _load_value_to_reg(self, operand, reg):
         if isinstance(operand, int):
             self.mips_code.append(f"    li {reg}, {operand}")
+        elif isinstance(operand, str) and operand.isdigit():
+            self.mips_code.append(f"    li {reg}, {int(operand)}")
         else:
             offset = self._get_var_stack_offset(operand)
             self.mips_code.append(f"    lw {reg}, {offset}($fp)")
@@ -312,6 +314,15 @@ class CodeGenerator:
                 self._load_value_to_reg(arg1, reg1)
                 self.mips_code.append(f"    bnez {reg1}, {result}")
                 self._release_reg(reg1)
+
+            elif op == "IF_TRUE":
+                reg1 = self._get_reg()
+                self._load_value_to_reg(arg1, reg1)
+                self.mips_code.append(f"    bnez {reg1}, {result}")
+                self._release_reg(reg1)
+
+            elif op == "JUMP":
+                self.mips_code.append(f"    j {result}")
 
             elif op == "CALL":
                 self.mips_code.append(f"    jal {arg1}")

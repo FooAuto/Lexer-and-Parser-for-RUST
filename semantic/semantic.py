@@ -1352,17 +1352,21 @@ class SemanticAnalyzer:
         return {"type": final_tuple_type, "place": tuple_place, "code": quads}
 
     # depreciated
-    # def process_loop_statement(self, body_block_attrs, line_num):
-    #     loop_data_from_begin = self.process_loop_begin(is_expression=False, line_num=line_num)
+    def process_loop_statement(self, body_block_attrs, line_num):
+        loop_data = self.process_loop_begin(is_expression=False, line_num=line_num)
 
-    #     all_quads = []
-    #     all_quads.extend(loop_data_from_begin.get("quads", []))
-    #     all_quads.extend(body_block_attrs.get("code", []))
+        all_quads = []
+        all_quads.extend(loop_data.get("quads", []))
 
-    #     attrs_from_end = self.process_loop_end(loop_data_from_begin, line_num)
-    #     all_quads.extend(attrs_from_end.get("quads", []))
+        all_quads.extend(body_block_attrs.get("code", []))
 
-    #     return {"code": all_quads, "type": "void"}
+        self.add_quad("JUMP", result=loop_data["loop_ctx"]["start_label"])
+        all_quads.append(self.quadruples.pop())
+
+        attrs_from_end = self.process_loop_end(loop_data, line_num)
+        all_quads.extend(attrs_from_end.get("quads", []))
+
+        return {"code": all_quads, "type": "void"}
 
     def get_quadruples(self):
         return self.quadruples
@@ -1703,8 +1707,8 @@ class SemanticAnalyzer:
             return get_child_attrs(0)
         elif production_rule_str == "Statement -> ForStatement":
             return get_child_attrs(0)
-        elif production_rule_str == "Statement -> LoopStatement":
-            return get_child_attrs(0)
+        # elif production_rule_str == "Statement -> LoopStatement":
+        #     return get_child_attrs(0)
         elif production_rule_str == "Statement -> BREAK SEMICOLON":
             break_token = get_token_obj_from_child(0)
             return self.process_break_continue(break_token, None, approx_loc)
@@ -2038,11 +2042,11 @@ class SemanticAnalyzer:
         # --- Advanced Expressions ---
         elif production_rule_str == "Expression -> ConditionalExpression":
             return get_child_attrs(0)
-        elif production_rule_str == "Expression -> LoopExpression":
-            return get_child_attrs(0)
-        elif production_rule_str == "LoopExpression -> LOOP StatementBlock":  # loop 表达式
-            body_block_attrs = get_child_attrs(1)
-            return self.process_loop_expression(body_block_attrs, approx_loc)
+        # elif production_rule_str == "Expression -> LoopExpression":
+        #     return get_child_attrs(0)
+        # elif production_rule_str == "LoopExpression -> LOOP StatementBlock":  # loop 表达式
+        #     body_block_attrs = get_child_attrs(1)
+        #     return self.process_loop_expression(body_block_attrs, approx_loc)
         elif production_rule_str == "ConditionalExpression -> IF Expression BlockExpression ELSE BlockExpression":
             cond_expr_attrs = get_child_attrs(1)
             true_block_expr_attrs = get_child_attrs(2)
@@ -2138,62 +2142,109 @@ class SemanticAnalyzer:
             )
 
             return {"quads": end_attrs.get("quads", [])}
-        elif production_rule_str == "LoopExprMarkerBegin -> LOOP":
-            loop_token = get_token_obj_from_child(0)
-            line_num = loop_token["loc"]["row"] if loop_token and "loc" in loop_token else approx_loc
+        # elif production_rule_str == "LoopExprMarkerBegin -> LOOP":
+        #     loop_token = get_token_obj_from_child(0)
+        #     line_num = loop_token["loc"]["row"] if loop_token and "loc" in loop_token else approx_loc
 
-            # 调用 process_loop_begin，标记为表达式，它会压栈 loop_stack
-            # 并返回其生成的四元式 (如 LABEL) 和 loop_ctx (包含标签等信息)
-            attrs_from_begin = self.process_loop_begin(is_expression=True, line_num=line_num)
-            return attrs_from_begin
+        #     # 调用 process_loop_begin，标记为表达式，它会压栈 loop_stack
+        #     # 并返回其生成的四元式 (如 LABEL) 和 loop_ctx (包含标签等信息)
+        #     attrs_from_begin = self.process_loop_begin(is_expression=True, line_num=line_num)
+        #     return attrs_from_begin
 
-        elif production_rule_str == "LoopExpression -> LoopExprMarkerBegin StatementBlock LoopExprMarkerEnd":
-            begin_attrs = get_child_attrs(0)
-            body_attrs = get_child_attrs(1)
-            end_attrs = get_child_attrs(2)
+        # elif production_rule_str == "LoopExpression -> LoopExprMarkerBegin StatementBlock LoopExprMarkerEnd":
+        #     begin_attrs = get_child_attrs(0)
+        #     body_attrs = get_child_attrs(1)
+        #     end_attrs = get_child_attrs(2)
 
-            # 按顺序合并所有四元式
+        #     # 按顺序合并所有四元式
+        #     all_quads = []
+        #     all_quads.extend(begin_attrs.get("quads", []))
+        #     all_quads.extend(body_attrs.get("code", []))
+        #     all_quads.extend(end_attrs.get("quads", []))
+
+        #     return {"type": end_attrs.get("type"), "place": end_attrs.get("place"), "code": all_quads}
+
+        # elif production_rule_str == "LoopExprMarkerEnd -> epsilon":
+        #     if (
+        #         not self.loop_stack
+        #         or self.loop_stack[-1]["type"] != "loop"
+        #         or not self.loop_stack[-1].get("is_expr_loop")
+        #     ):
+        #         raise SemanticError(
+        #             "Internal error: LoopExprMarkerEnd reached with invalid or missing 'loop expression' context on loop_stack.",
+        #             approx_loc,
+        #         )
+
+        #     loop_ctx_from_stack = self.loop_stack[-1]  # 获取上下文
+
+        #     attrs_from_end = self.process_loop_end({"loop_ctx": loop_ctx_from_stack}, approx_loc)
+        #     return attrs_from_end
+        elif production_rule_str == "Statement -> LoopStatement":
+            return get_child_attrs(0)
+        elif production_rule_str == "Factor -> LoopExpression":
+            return get_child_attrs(0)
+        elif production_rule_str == "LoopStmtBeginMarker -> epsilon":
+            line_num = approx_loc.get("row", "?")
+            return self.process_loop_begin(is_expression=False, line_num=line_num)
+
+        elif production_rule_str == "LoopExprBeginMarker -> epsilon":
+            line_num = approx_loc.get("row", "?")
+            return self.process_loop_begin(is_expression=True, line_num=line_num)
+
+        elif production_rule_str in ["LoopStmtEndMarker -> epsilon", "LoopExprEndMarker -> epsilon"]:
+            return self.process_loop_end({"loop_ctx": self.loop_stack[-1]}, approx_loc)
+
+        elif production_rule_str == "LoopStatement -> LOOP LoopStmtBeginMarker StatementBlock LoopStmtEndMarker":
+            print("LoopStatement")
+            begin_attrs = get_child_attrs(1)
+            body_attrs = get_child_attrs(2)
+            end_attrs = get_child_attrs(3)
+
             all_quads = []
-            all_quads.extend(begin_attrs.get("quads", []))
-            all_quads.extend(body_attrs.get("code", []))
-            all_quads.extend(end_attrs.get("quads", []))
-
-            return {"type": end_attrs.get("type"), "place": end_attrs.get("place"), "code": all_quads}
-
-        elif production_rule_str == "LoopExprMarkerEnd -> epsilon":
-            if (
-                not self.loop_stack
-                or self.loop_stack[-1]["type"] != "loop"
-                or not self.loop_stack[-1].get("is_expr_loop")
-            ):
-                raise SemanticError(
-                    "Internal error: LoopExprMarkerEnd reached with invalid or missing 'loop expression' context on loop_stack.",
-                    approx_loc,
-                )
-
-            loop_ctx_from_stack = self.loop_stack[-1]  # 获取上下文
-
-            attrs_from_end = self.process_loop_end({"loop_ctx": loop_ctx_from_stack}, approx_loc)
-            return attrs_from_end
-
-        elif production_rule_str == "LoopStmtMarkerBegin -> LOOP":
-            loop_token = get_token_obj_from_child(0)
-            line_num = loop_token["loc"]["row"] if loop_token and "loc" in loop_token else approx_loc
-
-            attrs_from_begin = self.process_loop_begin(is_expression=False, line_num=line_num)
-            return attrs_from_begin
-
-        elif production_rule_str == "LoopStatement -> LoopStmtMarkerBegin StatementBlock LoopStmtMarkerEnd":
-            begin_attrs = get_child_attrs(0)
-            body_attrs = get_child_attrs(1)
-            end_attrs = get_child_attrs(2)
-
-            all_quads = []
-            all_quads.extend(begin_attrs.get("quads", []))
-            all_quads.extend(body_attrs.get("code", []))
-            all_quads.extend(end_attrs.get("quads", []))
+            all_quads.extend(begin_attrs.get("quads", []))  # LABEL L_START
+            all_quads.extend(body_attrs.get("code", []))  # 循环体
+            # 为语句添加无限循环跳转
+            all_quads.append(Quadruple("JUMP", result=begin_attrs["loop_ctx"]["start_label"]))
+            all_quads.extend(end_attrs.get("quads", []))  # LABEL L_END
 
             return {"code": all_quads, "type": "void"}
+
+        elif production_rule_str == "LoopExpression -> LOOP LoopExprBeginMarker StatementBlock LoopExprEndMarker":
+            print("LoopExpression")
+            begin_attrs = get_child_attrs(1)
+            body_attrs = get_child_attrs(2)
+            end_attrs = get_child_attrs(3)
+
+            all_quads = []
+            all_quads.extend(begin_attrs.get("quads", []))  # LABEL L_START
+            all_quads.extend(body_attrs.get("code", []))  # 循环体
+            # 表达式不添加无限跳转
+            all_quads.extend(end_attrs.get("quads", []))  # LABEL L_END
+
+            return {
+                "type": end_attrs.get("type"),
+                "place": end_attrs.get("place"),
+                "code": all_quads,
+            }
+
+        # elif production_rule_str == "LoopStmtMarkerBegin -> LOOP":
+        #     loop_token = get_token_obj_from_child(0)
+        #     line_num = loop_token["loc"]["row"] if loop_token and "loc" in loop_token else approx_loc
+
+        #     attrs_from_begin = self.process_loop_begin(is_expression=False, line_num=line_num)
+        #     return attrs_from_begin
+
+        # elif production_rule_str == "LoopStatement -> LoopStmtMarkerBegin StatementBlock LoopStmtMarkerEnd":
+        #     begin_attrs = get_child_attrs(0)
+        #     body_attrs = get_child_attrs(1)
+        #     end_attrs = get_child_attrs(2)
+
+        #     all_quads = []
+        #     all_quads.extend(begin_attrs.get("quads", []))
+        #     all_quads.extend(body_attrs.get("code", []))
+        #     all_quads.extend(end_attrs.get("quads", []))
+
+        #     return {"code": all_quads, "type": "void"}
 
         elif production_rule_str == "LoopStmtMarkerEnd -> epsilon":
             if not self.loop_stack or self.loop_stack[-1]["type"] != "loop" or self.loop_stack[-1].get("is_expr_loop"):

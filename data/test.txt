@@ -144,3 +144,15 @@ fn main(){
 }
 
 
+fn program_5_2(mut n:i32)->i32{
+	let mut b=0;
+	for mut i in 1..n+1 {
+		b=b+1;
+	}
+    return b;
+}
+
+fn main(){
+	let mut a = 3;
+    a = program_5_2(3);
+}
