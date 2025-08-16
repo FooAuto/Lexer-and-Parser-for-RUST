@@ -1,0 +1,1 @@
+pyinstaller --onefile --name rust --add-data "static:static" --add-data "configs:configs" --add-data ".cache:.cache" .\entrance.py
